@@ -1,8 +1,2 @@
 [build]
   functions = "netlify/functions"
-
-[[redirects]]
-  from = "/*"
-  to = "/.netlify/functions/auth-gate"
-  status = 200
-  force = true
