@@ -1,0 +1,18 @@
+window.COMMANDS = [
+    { cmd: '/help', desc: 'Show available commands' },
+    { cmd: '/clear', desc: 'Clear chat history (local only)' },
+    { cmd: '/fetch', desc: 'Refresh the repository file tree' },
+    { cmd: '/commit', desc: 'Commit active file (Usage: /commit <message>)' },
+    { cmd: '/learn', desc: 'Add a rule to project memory (Usage: /learn <rule>)' },
+    { cmd: '/forget', desc: 'Clear all project memory' },
+    { cmd: '/branch', desc: 'Create new branch (Usage: /branch <branch-name>)' },
+    { cmd: '/pr', desc: 'Open PR from current branch (Usage: /pr <title> [base-branch])' },
+    { cmd: '/switch', desc: 'Switch workspace branch (Usage: /switch <branch>)' },
+    { cmd: '/search', desc: 'Search the web for best practices or repo info (Usage: /search <query>)' },
+    { cmd: '/plan', desc: 'Analyze repo and create a task plan from a goal (Usage: /plan <goal>)' },
+    { cmd: '/execute', desc: 'Execute the next task from the current plan' },
+    { cmd: '/review', desc: 'Review all completed tasks for quality' },
+    { cmd: '/autopilot', desc: 'Run full plan → execute → review loop without prompting' },
+    { cmd: '/manual', desc: 'Return to step-by-step confirmation mode' },
+    { cmd: '/tasks', desc: 'List all tasks in the current milestone' },
+];
