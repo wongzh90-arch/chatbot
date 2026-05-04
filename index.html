@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claude Code Web – Solo Edition</title>
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'none';
+        script-src 'sha384-...' 'sha384-...' 'sha384-...' 'sha384-...' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net;
+        style-src 'unsafe-inline' https://cdn.tailwindcss.com;
+        img-src * data:;
+        connect-src * https://api.github.com https://openrouter.ai https://api.langsearch.com;
+        font-src 'none';
+    ">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"
+            integrity="sha384-Xu9OBXwQVXcu5uZJ2Z3k0n2HJ3LmJz2hUYNPsf2Z3p7N6VZ9+fGfyR+YPjJKmCm"
+            crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
+            integrity="sha384-u4LqYG8F8PFfYO1V0q0zEboYDT9o/MhN65/TxBVgEBzUQzQpbVLU07JMkA2i8hG"
+            crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"
+            integrity="sha384-4x8vzj1GZHv/l5qE4gMdh+BSkTPUOoPgA1HFEVXlMnDPrcPBp6XDOm5CbRR9Nds"
+            crossorigin="anonymous"></script>
+    <style>
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #52525b; }
+    </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 font-sans antialiased overflow-hidden">
+    <div id="root"></div>
+
+    <!-- Utility modules -->
+    <script type="text/babel" src="js/utils/markdown.js"></script>
+    <script type="text/babel" src="js/utils/commands.js"></script>
+    <script type="text/babel" src="js/utils/agentSkills.js"></script>
+
+    <!-- Service modules -->
+    <script type="text/babel" src="js/services/github.js"></script>
+    <script type="text/babel" src="js/services/openrouter.js"></script>
+    <script type="text/babel" src="js/services/webSearch.js"></script>
+    <script type="text/babel" src="js/services/taskManager.js"></script>
+
+    <!-- Agent modules -->
+    <script type="text/babel" src="js/agents/planner.js"></script>
+    <script type="text/babel" src="js/agents/executor.js"></script>
+    <script type="text/babel" src="js/agents/reviewer.js"></script>
+    <script type="text/babel" src="js/agents/orchestrator.js"></script>
+
+    <!-- UI Components -->
+    <script type="text/babel" src="js/components/Navbar.jsx"></script>
+    <script type="text/babel" src="js/components/EditorPane.jsx"></script>
+    <script type="text/babel" src="js/components/ChatPane.jsx"></script>
+    <script type="text/babel" src="js/components/LeftPane.jsx"></script>
+    <script type="text/babel" src="js/components/TaskBoard.jsx"></script>
+
+    <!-- Main App -->
+    <script type="text/babel" src="js/app.jsx"></script>
+</body>
+</html>
