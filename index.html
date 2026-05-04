@@ -4,14 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Claude Code Web – Solo Edition</title>
-    <meta http-equiv="Content-Security-Policy" content="
-        default-src 'none';
-        script-src 'sha384-...' 'sha384-...' 'sha384-...' 'sha384-...' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net;
-        style-src 'unsafe-inline' https://cdn.tailwindcss.com;
-        img-src * data:;
-        connect-src * https://api.github.com https://openrouter.ai https://api.langsearch.com;
-        font-src 'none';
-    ">
     <style>
         body { margin: 0; }
         #login-gate {
@@ -23,6 +15,7 @@
             color: #eee;
             font-family: system-ui, sans-serif;
         }
+        #login-gate.hidden { display: none; }
         #login-gate form {
             background: #1a1a1a;
             padding: 2rem;
@@ -48,11 +41,10 @@
             border-radius: 4px;
             cursor: pointer;
         }
-        .hidden { display: none !important; }
     </style>
 </head>
 <body>
-    <!-- Password Gate (before React) -->
+    <!-- Password Gate -->
     <div id="login-gate">
         <form id="login-form">
             <h2>Private App</h2>
@@ -62,34 +54,29 @@
         </form>
     </div>
 
-    <!-- Main App (hidden until login succeeds) -->
-    <div id="root" class="hidden"></div>
+    <!-- Main App (initially hidden) -->
+    <div id="root" style="display:none"></div>
 
     <script>
-        // ----- Simple client‑side password check -----
-        (function() {
-            // Set this to your password's SHA‑256 hash
-            // Generate one at https://emn178.github.io/online-tools/sha256.html
-            const PASSWORD_HASH = 'c1366f39d8847f3659cdd75c4d9d4fe3f3c0f77782ffe2c41c995e844d68521f'; // default: "password"
+        // Replace this with YOUR password hash (SHA‑256)
+        // Generate at: https://emn178.github.io/online-tools/sha256.html
+        const PASSWORD_HASH = 'c1366f39d8847f3659cdd75c4d9d4fe3f3c0f77782ffe2c41c995e844d68521f';
 
-            // Check if we already have a session token
+        (function() {
             const token = sessionStorage.getItem('auth_token');
             if (token === PASSWORD_HASH) {
-                // already logged in
                 showApp();
                 return;
             }
 
-            // Show login form
             const gate = document.getElementById('login-gate');
+            const root = document.getElementById('root');
             const form = document.getElementById('login-form');
             const input = document.getElementById('password-input');
-            const root = document.getElementById('root');
 
             form.addEventListener('submit', async function(e) {
                 e.preventDefault();
                 const password = input.value;
-                // Hash the password using SHA‑256
                 const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(password));
                 const hashArray = Array.from(new Uint8Array(hashBuffer));
                 const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
@@ -98,7 +85,7 @@
                     sessionStorage.setItem('auth_token', hashHex);
                     showApp();
                 } else {
-                    alert('Wrong password');
+                    alert('Incorrect password');
                     input.value = '';
                     input.focus();
                 }
@@ -106,23 +93,17 @@
 
             function showApp() {
                 gate.classList.add('hidden');
-                root.classList.remove('hidden');
-                // Now the React scripts will run and mount to #root
+                root.style.display = '';
             }
         })();
     </script>
 
-    <!-- CDN scripts (unchanged) -->
+    <!-- CDN scripts (NO integrity hashes, NO CSP) -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"
-            integrity="sha384-Xu9OBXwQVXcu5uZJ2Z3k0n2HJ3LmJz2hUYNPsf2Z3p7N6VZ9+fGfyR+YPjJKmCm"
-            crossorigin="anonymous"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
-            integrity="sha384-u4LqYG8F8PFfYO1V0q0zEboYDT9o/MhN65/TxBVgEBzUQzQpbVLU07JMkA2i8hG"
-            crossorigin="anonymous"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"
-            integrity="sha384-4x8vzj1GZHv/l5qE4gMdh+BSkTPUOoPgA1HFEVXlMnDPrcPBp6XDOm5CbRR9Nds"
-            crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
     <style>
         .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -130,7 +111,7 @@
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #52525b; }
     </style>
 
-    <!-- App modules (unchanged) -->
+    <!-- App modules -->
     <script type="text/babel" src="js/utils/markdown.js"></script>
     <script type="text/babel" src="js/utils/commands.js"></script>
     <script type="text/babel" src="js/utils/agentSkills.js"></script>
