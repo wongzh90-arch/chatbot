@@ -12,6 +12,107 @@
         connect-src * https://api.github.com https://openrouter.ai https://api.langsearch.com;
         font-src 'none';
     ">
+    <style>
+        body { margin: 0; }
+        #login-gate {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: #0a0a0a;
+            color: #eee;
+            font-family: system-ui, sans-serif;
+        }
+        #login-gate form {
+            background: #1a1a1a;
+            padding: 2rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+        #login-gate input {
+            width: 100%;
+            padding: 0.5rem;
+            margin: 0.5rem 0;
+            border: 1px solid #333;
+            background: #222;
+            color: #eee;
+            border-radius: 4px;
+        }
+        #login-gate button {
+            width: 100%;
+            padding: 0.5rem;
+            background: #f59e0b;
+            border: none;
+            color: #000;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <!-- Password Gate (before React) -->
+    <div id="login-gate">
+        <form id="login-form">
+            <h2>Private App</h2>
+            <p style="font-size:0.8rem; color:#999">Enter your password to continue</p>
+            <input type="password" id="password-input" placeholder="Password" required autofocus>
+            <button type="submit">Unlock</button>
+        </form>
+    </div>
+
+    <!-- Main App (hidden until login succeeds) -->
+    <div id="root" class="hidden"></div>
+
+    <script>
+        // ----- Simple client‑side password check -----
+        (function() {
+            // Set this to your password's SHA‑256 hash
+            // Generate one at https://emn178.github.io/online-tools/sha256.html
+            const PASSWORD_HASH = '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8'; // default: "password"
+
+            // Check if we already have a session token
+            const token = sessionStorage.getItem('auth_token');
+            if (token === PASSWORD_HASH) {
+                // already logged in
+                showApp();
+                return;
+            }
+
+            // Show login form
+            const gate = document.getElementById('login-gate');
+            const form = document.getElementById('login-form');
+            const input = document.getElementById('password-input');
+            const root = document.getElementById('root');
+
+            form.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                const password = input.value;
+                // Hash the password using SHA‑256
+                const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(password));
+                const hashArray = Array.from(new Uint8Array(hashBuffer));
+                const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+                if (hashHex === PASSWORD_HASH) {
+                    sessionStorage.setItem('auth_token', hashHex);
+                    showApp();
+                } else {
+                    alert('Wrong password');
+                    input.value = '';
+                    input.focus();
+                }
+            });
+
+            function showApp() {
+                gate.classList.add('hidden');
+                root.classList.remove('hidden');
+                // Now the React scripts will run and mount to #root
+            }
+        })();
+    </script>
+
+    <!-- CDN scripts (unchanged) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"
             integrity="sha384-Xu9OBXwQVXcu5uZJ2Z3k0n2HJ3LmJz2hUYNPsf2Z3p7N6VZ9+fGfyR+YPjJKmCm"
@@ -28,35 +129,24 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #52525b; }
     </style>
-</head>
-<body class="bg-zinc-950 text-zinc-100 font-sans antialiased overflow-hidden">
-    <div id="root"></div>
 
-    <!-- Utility modules -->
+    <!-- App modules (unchanged) -->
     <script type="text/babel" src="js/utils/markdown.js"></script>
     <script type="text/babel" src="js/utils/commands.js"></script>
     <script type="text/babel" src="js/utils/agentSkills.js"></script>
-
-    <!-- Service modules -->
     <script type="text/babel" src="js/services/github.js"></script>
     <script type="text/babel" src="js/services/openrouter.js"></script>
     <script type="text/babel" src="js/services/webSearch.js"></script>
     <script type="text/babel" src="js/services/taskManager.js"></script>
-
-    <!-- Agent modules -->
     <script type="text/babel" src="js/agents/planner.js"></script>
     <script type="text/babel" src="js/agents/executor.js"></script>
     <script type="text/babel" src="js/agents/reviewer.js"></script>
     <script type="text/babel" src="js/agents/orchestrator.js"></script>
-
-    <!-- UI Components -->
     <script type="text/babel" src="js/components/Navbar.jsx"></script>
     <script type="text/babel" src="js/components/EditorPane.jsx"></script>
     <script type="text/babel" src="js/components/ChatPane.jsx"></script>
     <script type="text/babel" src="js/components/LeftPane.jsx"></script>
     <script type="text/babel" src="js/components/TaskBoard.jsx"></script>
-
-    <!-- Main App -->
     <script type="text/babel" src="js/app.jsx"></script>
 </body>
 </html>
