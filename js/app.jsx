@@ -58,6 +58,9 @@ function App() {
     const chatScrollRef = useRef(null);
     const inputRef = useRef(null);
 
+    // Streaming state
+    const [streamingMessage, setStreamingMessage] = useState(null);
+
     useEffect(() => {
         localStorage.setItem('LOCAL_CONVERSATIONS', JSON.stringify(conversations));
     }, [conversations]);
@@ -305,13 +308,13 @@ function App() {
         }
     };
 
-    // ========== AI Chat ==========
+    // ========== AI Chat with Streaming ==========
     const sendMessage = async (overrideText) => {
         const userText = overrideText || inputPrompt;
         if (!userText.trim()) return;
         setInputPrompt('');
 
-        // ---- Slash command handling unchanged ----
+        // Slash command handling
         if (userText.startsWith('/')) {
             const parts = userText.trim().split(' ');
             const cmd = parts[0].toLowerCase();
@@ -319,10 +322,12 @@ function App() {
             if (await executeSlashCommand(cmd, args, userText)) return;
         }
 
-        // ---- No key check here anymore ----
         const newMessages = [...messages, { role: 'user', content: userText }];
         setMessages(newMessages);
         setIsLoading(true);
+
+        // Prepare streaming placeholder
+        setStreamingMessage({ id: Date.now(), content: '', model: null });
 
         const memoryStr = projectMemory.length ? '\nPROJECT MEMORY:\n' + projectMemory.map((m, i) => `${i+1}. ${m}`).join('\n') : '';
         const sysPrompt = `You are an autonomous coding agent. Current repo: ${currentRepo} (branch: ${currentBranch}). Active file: ${activeFilePath}.\nContent:\n\`\`\`\n${activeFileContent}\n\`\`\`${memoryStr}\nYou can use: <skill name="update_editor">NEW_CODE</skill> to overwrite active file, <skill name="read_file" path="..."/> to request a file load.`;
@@ -336,24 +341,42 @@ function App() {
             }
         }
 
+        let assistantContent = '';
+        let finalModel = null;
+
         try {
-            const reply = await window.OpenRouterService.chatCompletion({
-                messages: newMessages, model: selectedModel, apiKey: openRouterKey,
-                systemPrompt: sysPrompt, userContent
+            await window.OpenRouterService.streamChatCompletion({
+                messages: newMessages,
+                model: selectedModel,
+                apiKey: openRouterKey,
+                systemPrompt: sysPrompt,
+                userContent,
+                onChunk: (chunk) => {
+                    assistantContent += chunk;
+                    setStreamingMessage(prev => prev ? { ...prev, content: assistantContent } : null);
+                },
+                onModel: (model) => {
+                    finalModel = model;
+                    setStreamingMessage(prev => prev ? { ...prev, model } : null);
+                }
             });
-            const { modifiedReply, actions } = window.processAgentSkills(reply);
+
+            // Process skills (update editor or read file requests)
+            const { modifiedReply, actions } = window.processAgentSkills(assistantContent);
             if (actions.updateEditorContent) {
                 setActiveFileContent(actions.updateEditorContent);
                 addToast('Agent updated editor', 'success');
                 setActiveTab('editor');
             }
-            setMessages(prev => [...prev, { role: 'assistant', content: modifiedReply }]);
+            // Add final assistant message to history
+            setMessages(prev => [...prev, { role: 'assistant', content: modifiedReply, model: finalModel || selectedModel }]);
             setUploadedContext(null);
             setActiveTab('chat');
         } catch (e) {
             addToast(e.message, 'error');
             setMessages(prev => [...prev, { role: 'assistant', content: `*Error: ${e.message}*` }]);
         } finally {
+            setStreamingMessage(null);
             setIsLoading(false);
         }
     };
@@ -370,7 +393,7 @@ function App() {
         file.type.startsWith('image/') ? reader.readAsDataURL(file) : reader.readAsText(file);
     };
 
-    useEffect(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }, [messages]);
+    useEffect(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }, [messages, streamingMessage]);
     useEffect(() => { setShowCmdHints(inputPrompt.startsWith('/')); }, [inputPrompt]);
 
     return React.createElement('div', { className: 'flex flex-col h-screen bg-zinc-950 text-zinc-200' },
@@ -432,7 +455,8 @@ function App() {
                 isLoading, onSend: sendMessage, onFileUpload: handleFileUpload,
                 showCmdHints,
                 onCmdHintClick: (cmd) => { setInputPrompt(cmd + ' '); inputRef.current.focus(); },
-                chatScrollRef, inputRef
+                chatScrollRef, inputRef,
+                streamingMessage  // <-- new prop
             })
         )
     );
