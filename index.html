@@ -1,3 +1,5 @@
+<!DOCTYPE html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -80,3 +82,83 @@
         }
     </style>
 </head>
+<body>
+
+    <!-- Login gate -->
+    <div id="login-gate">
+        <form onsubmit="return false;">
+            <h2>🔐 Access Required</h2>
+            <input type="password" id="gate-password" placeholder="Enter password" autofocus />
+            <button onclick="checkPassword()">Enter</button>
+        </form>
+    </div>
+
+    <!-- React mounts here (hidden until password is correct) -->
+    <div id="root" style="display:none; height:100vh;"></div>
+
+    <!-- ── Utilities (no dependencies) ── -->
+    <script src="js/utils/markdown.js"></script>
+    <script src="js/utils/agentSkills.js"></script>
+    <script src="js/utils/commands.js"></script>
+    <script src="js/utils/contextMatcher.js"></script>
+    <script src="js/utils/intentDetector.js"></script>
+    <script src="js/utils/sanityCheck.js"></script>
+    <script type="text/babel" src="js/utils/ErrorBoundary.jsx"></script>
+
+    <!-- ── Services (depend on utilities) ── -->
+    <script src="js/services/github.js"></script>
+    <script src="js/services/llmProvider.js"></script>
+    <script src="js/services/modelRegistry.js"></script>
+    <script src="js/services/openrouter.js"></script>
+    <script src="js/services/summaryService.js"></script>
+    <script src="js/services/taskManager.js"></script>
+    <script src="js/services/webSearch.js"></script>
+
+    <!-- ── Agents (depend on services) ── -->
+    <script src="js/agents/planner.js"></script>
+    <script src="js/agents/executor.js"></script>
+    <script src="js/agents/reviewer.js"></script>
+    <script src="js/agents/orchestrator.js"></script>
+
+    <!-- ── Components (depend on services + utilities) ── -->
+    <script type="text/babel" src="js/components/Navbar.jsx"></script>
+    <script type="text/babel" src="js/components/LeftPane.jsx"></script>
+    <script type="text/babel" src="js/components/EditorPane.jsx"></script>
+    <script type="text/babel" src="js/components/ChatPane.jsx"></script>
+    <script type="text/babel" src="js/components/SummaryPanel.jsx"></script>
+    <script type="text/babel" src="js/components/TaskBoard.jsx"></script>
+
+    <!-- ── Main app (depends on everything above) ── -->
+    <script type="text/babel" src="js/app.jsx"></script>
+
+    <!-- ── Login gate logic ── -->
+    <script>
+        var GATE_PASSWORD_HASH = 'c1366f39d8847f3659cdd75c4d9d4fe3f3c0f77782ffe2c41c995e844d68521f';
+    
+        async function hashPassword(input) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(input);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+    
+        async function checkPassword() {
+            var input = document.getElementById('gate-password').value;
+            var hashed = await hashPassword(input);
+            if (hashed === GATE_PASSWORD_HASH) {
+                document.getElementById('login-gate').classList.add('hidden');
+                document.getElementById('root').style.display = '';
+            } else {
+                document.getElementById('gate-password').value = '';
+                document.getElementById('gate-password').placeholder = 'Wrong password, try again';
+            }
+        }
+    
+        document.getElementById('gate-password').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') checkPassword();
+        });
+    </script>
+
+</body>
+</html>
