@@ -4,12 +4,15 @@ window.PlannerAgent = (() => {
         repo, branch, githubToken,
         openRouterKey, model,
         fileTree,
-        addToast
+        addToast,
+        projectMemory,
+        userMemory,
+        systemPromptOverride
     }) {
         addToast('🔍 Analyzing repository...', 'info');
 
         const fileList = fileTree.map(f => f.path).join('\n');
-        const sysPrompt = `You are a senior software architect analyzing a codebase.
+        let sysPrompt = `You are a senior software architect analyzing a codebase.
 Repo: ${repo} (branch: ${branch})
 Goal: "${goal}"
 
@@ -39,6 +42,24 @@ Rules:
 - Each task must be small and clearly defined.
 - Dependencies must be acyclic.
 - Return ONLY the JSON object, no markdown wrappers.`;
+
+        // Apply system override
+        if (systemPromptOverride && systemPromptOverride.trim()) {
+            sysPrompt = systemPromptOverride + '\n\n' + sysPrompt;
+        }
+
+        // Inject relevant user preferences
+        if (userMemory && userMemory.length) {
+            const context = goal + ' ' + repo + ' ' + branch;
+            const relevantPrefs = window.ContextMatcher.selectRelevant(userMemory, context, 3);
+            if (relevantPrefs.length) {
+                sysPrompt += '\n\nRELEVANT USER PREFERENCES:\n' + relevantPrefs.map((p, i) => `${i+1}. ${p}`).join('\n');
+            }
+        }
+
+        if (projectMemory && projectMemory.length) {
+            sysPrompt += '\n\nPROJECT MEMORY:\n' + projectMemory.map((m, i) => `${i+1}. ${m}`).join('\n');
+        }
 
         const userContent = `Analyze the repository ${repo} and create a plan to: ${goal}`;
 
