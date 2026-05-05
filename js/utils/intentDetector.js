@@ -125,6 +125,25 @@ window.IntentDetector = (() => {
       ],
       handler: () => ({ cmd: '/clear', args: '', confidence: 0.9 })
     },
+    // ---- NEW: Self‑improve ----
+    {
+      patterns: [
+        /^(?:self[ -]?improve|improve (?:myself|the chatbot|the app|the codebase))\s+(.+)/i,
+        /^(?:make the chatbot better at|enhance the chatbot to|upgrade the bot to)\s+(.+)/i,
+      ],
+      handler: (match, fullText) => {
+        const goal = match[1] || fullText.replace(/^self[ -]?improve\s+/i, '');
+        return { cmd: '/self-improve', args: goal, confidence: 0.9 };
+      }
+    },
+    // ---- NEW: Rollback ----
+    {
+      patterns: [
+        /^(?:rollback|undo|revert|reset)\s+(?:my|the)?\s*(?:changes|branch)/i,
+        /^(?:go back|discard changes)/i,
+      ],
+      handler: () => ({ cmd: '/rollback', args: '', confidence: 0.85 })
+    }
   ];
 
   function detect(text) {
