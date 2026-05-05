@@ -47,7 +47,10 @@ window.Orchestrator = (() => {
 
         if (result.error) {
             state.phase = 'idle';
-            setMessages(prev => [...prev, { role: 'assistant', content: `❌ Planning failed: ${result.message || result.error}` }]);
+            setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: `❌ Planning failed: ${result.message || result.error}`
+            }]);
             return { error: true, message: result.message || result.error };
         }
 
@@ -87,7 +90,9 @@ window.Orchestrator = (() => {
 
         state.phase = 'executing';
 
-        const allTasks = await window.TaskManager.getTasksByMilestone(repo, state.milestone.number, githubToken);
+        const allTasks = await window.TaskManager.getTasksByMilestone(
+            repo, state.milestone.number, githubToken
+        );
         state.tasks = allTasks;
 
         const result = await window.ExecutorAgent.executeNextTask({
@@ -100,7 +105,7 @@ window.Orchestrator = (() => {
         });
 
         if (!result) {
-            // No more tasks — move to review
+            // No more TODO tasks — move to review
             addToast('All tasks done. Moving to review...', 'info');
             return await runReviewPhase({
                 repo, branch, githubToken,
@@ -115,8 +120,7 @@ window.Orchestrator = (() => {
             content: `🔨 Executed **${result.title}** [#${result.issueNumber || result.number}]`
         }]);
 
-        await window.TaskManager.updateTaskStatus(repo, result.number, 'DONE', githubToken);
-
+        // NOTE: task is already marked DONE inside executor — no duplicate call here
         state.lastExecutedTask = result;
 
         if (state.mode === 'autopilot') {
@@ -146,9 +150,14 @@ window.Orchestrator = (() => {
 
         state.phase = 'reviewing';
 
-        const allTasks = await window.TaskManager.getTasksByMilestone(repo, state.milestone.number, githubToken);
+        const allTasks = await window.TaskManager.getTasksByMilestone(
+            repo, state.milestone.number, githubToken
+        );
 
-        setMessages(prev => [...prev, { role: 'assistant', content: '🔍 Starting review of all completed tasks...' }]);
+        setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: '🔍 Starting review of all completed tasks...'
+        }]);
 
         const result = await window.ReviewerAgent.reviewCompletedTasks({
             tasks: allTasks,
