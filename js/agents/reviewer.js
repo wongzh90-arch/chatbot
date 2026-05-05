@@ -4,7 +4,10 @@ window.ReviewerAgent = (() => {
         repo, branch, githubToken,
         openRouterKey, model,
         fileTree,
-        addToast
+        addToast,
+        projectMemory,
+        userMemory,
+        systemPromptOverride
     }) {
         const doneTasks = tasks.filter(t =>
             t.labels.some(l => l.name === window.TaskManager.LABELS.DONE.name)
@@ -22,7 +25,7 @@ window.ReviewerAgent = (() => {
         for (const task of doneTasks) {
             await window.TaskManager.updateTaskStatus(repo, task.number, 'REVIEW', githubToken);
 
-            const sysPrompt = `You are a code reviewer. Review the following completed task for quality.
+            let sysPrompt = `You are a code reviewer. Review the following completed task for quality.
 
 Task: ${task.title}
 Task details: ${task.body || ''}
@@ -44,6 +47,22 @@ ISSUES:
 ...
 
 Be concise.`;
+
+            if (systemPromptOverride && systemPromptOverride.trim()) {
+                sysPrompt = systemPromptOverride + '\n\n' + sysPrompt;
+            }
+
+            if (userMemory && userMemory.length) {
+                const context = task.title + ' ' + (task.body || '');
+                const relevantPrefs = window.ContextMatcher.selectRelevant(userMemory, context, 3);
+                if (relevantPrefs.length) {
+                    sysPrompt += '\n\nRELEVANT USER PREFERENCES:\n' + relevantPrefs.map((p, i) => `${i+1}. ${p}`).join('\n');
+                }
+            }
+
+            if (projectMemory && projectMemory.length) {
+                sysPrompt += '\n\nPROJECT MEMORY:\n' + projectMemory.map((m, i) => `${i+1}. ${m}`).join('\n');
+            }
 
             const userContent = `Review the completed task: ${task.title}`;
 
