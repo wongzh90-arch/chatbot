@@ -16,6 +16,10 @@ function App() {
   useEffect(() => { localStorage.setItem('THINKING_MODE', thinkingMode); }, [thinkingMode]);
   useEffect(() => { localStorage.setItem('REASONING_EFFORT', reasoningEffort); }, [reasoningEffort]);
 
+  // ========== API Keys (must be defined before defaultModel) ==========
+  const [rememberKeys, setRememberKeys] = useState(localStorage.getItem('REMEMBER_KEYS') === 'true');
+  const keyStorage = rememberKeys ? localStorage : sessionStorage;
+
   // ========== Models ==========
   const DEEPSEEK_MODELS = [
     { value: 'deepseek-v4-flash', label: 'DeepSeek Flash (Fast)' },
@@ -44,10 +48,6 @@ function App() {
         ? keyStorage.getItem('OR_MODEL')
         : 'deepseek-v4-flash')
     : (keyStorage.getItem('OR_MODEL') || 'openrouter/auto');
-
-  // ========== API Keys (now only GitHub, no user-facing LLM key) ==========
-  const [rememberKeys, setRememberKeys] = useState(localStorage.getItem('REMEMBER_KEYS') === 'true');
-  const keyStorage = rememberKeys ? localStorage : sessionStorage;
 
   const [githubToken, setGithubToken] = useState(keyStorage.getItem('GH_TOKEN') || '');
   const [selectedModel, setSelectedModel] = useState(defaultModel);
@@ -275,7 +275,6 @@ function App() {
 
   // ========== Slash Commands ==========
   const executeSlashCommand = async (cmd, args, userText) => {
-    // (same as original, unchanged)
     switch (cmd) {
       case '/help':
         setMessages(prev => [...prev,
@@ -418,13 +417,11 @@ function App() {
     if (!userText) return;
     setInputPrompt('');
 
-    // Slash command
     if (userText.startsWith('/')) {
       const parts = userText.split(' ');
       if (await executeSlashCommand(parts[0].toLowerCase(), parts.slice(1).join(' '), userText)) return;
     }
 
-    // Intent detection
     if (window.IntentDetector) {
       const intent = window.IntentDetector.detect(userText);
       if (intent && intent.confidence >= 0.85) {
@@ -434,23 +431,19 @@ function App() {
       }
     }
 
-    // Regular AI chat with streaming
     const newMessages = [...messages, { role: 'user', content: userText }];
     setMessages(newMessages);
     setIsLoading(true);
     setStreamingMessage('');
     setStreamingReasoning(null);
 
-    // Build system prompt
     const memoryStr = projectMemory.length ? '\nPROJECT MEMORY:\n' + projectMemory.map((m, i) => `${i+1}. ${m}`).join('\n') : '';
     let sysPrompt = `You are an autonomous coding agent. Repo: ${currentRepo} (branch: ${currentBranch}). Active file: ${activeFilePath}.\nContent:\n\`\`\`\n${activeFileContent}\n\`\`\`${memoryStr}\nUse <skill name="update_editor">CODE</skill> to update the active file. Use <skill name="read_file" path="..."/> to request a file.`;
 
-    // Apply system prompt override
     if (systemPromptOverride.trim()) {
       sysPrompt = systemPromptOverride + '\n\n' + sysPrompt;
     }
 
-    // Inject relevant user preferences
     const contextForRelevance = userText + ' ' + messages.slice(-2).map(m => m.content).join(' ');
     const relevantPrefs = window.ContextMatcher.selectRelevant(userMemory, contextForRelevance, 3);
     const userMemoryStr = relevantPrefs.length
@@ -519,7 +512,6 @@ function App() {
   // ========== Render ==========
   return React.createElement('div', { className: 'flex flex-col h-screen bg-zinc-950 text-zinc-200 overflow-hidden' },
 
-    // Toasts
     React.createElement('div', { className: 'fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none' },
       toasts.map(t => React.createElement('div', {
         key: t.id,
@@ -551,7 +543,6 @@ function App() {
 
     React.createElement('div', { className: 'flex-1 flex overflow-hidden' },
 
-      // Conversation sidebar
       React.createElement('div', { className: 'w-40 sm:w-48 bg-zinc-950 border-r border-zinc-900 flex flex-col shrink-0' },
         React.createElement('div', { className: 'p-2 border-b border-zinc-900 flex items-center justify-between' },
           React.createElement('span', { className: 'font-bold text-[10px] uppercase text-zinc-600 tracking-widest' }, 'Chats'),
@@ -578,7 +569,6 @@ function App() {
         )
       ),
 
-      // Main content
       React.createElement('div', { className: 'flex-1 flex overflow-hidden' },
         (activeTab === 'tree' || activeTab === 'memory') && React.createElement(window.LeftPane, {
           memory: projectMemory, fileTree, activeFilePath, onFileClick: loadFile
