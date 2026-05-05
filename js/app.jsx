@@ -388,135 +388,147 @@ function App() {
         return true;
       }
       case '/rollback':
-  if (!currentRepo || !githubToken) {
-    addToast('Missing repo or token', 'error');
-    return true;
-  }
-  try {
-    await window.GitHubService.resetBranch(currentRepo, currentBranch, 'main', githubToken);
-    addToast('Branch reset to main', 'success');
-    await fetchFileTree();
-    setMessages(prev => [...prev, {
-      role: 'assistant',
-      content: '↩️ Branch has been reset to `main`. All uncommitted changes on this branch are lost.'
-    }]);
-  } catch (e) {
-    addToast(e.message, 'error');
-  }
-  return true;
+        if (!currentRepo || !githubToken) {
+          addToast('Missing repo or token', 'error');
+          return true;
+        }
+        try {
+          let defaultBranch = 'main';
+          try {
+            defaultBranch = await window.GitHubService.getDefaultBranch(currentRepo, githubToken);
+          } catch { /* fallback to main */ }
+          await window.GitHubService.resetBranch(currentRepo, currentBranch, defaultBranch, githubToken);
+          addToast(`Branch reset to ${defaultBranch}`, 'success');
+          await fetchFileTree();
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `↩️ Branch has been reset to \`${defaultBranch}\`. All uncommitted changes on this branch are lost.`
+          }]);
+        } catch (e) {
+          addToast(e.message, 'error');
+        }
+        return true;
+      case '/self-improve': {
+        if (!args) { addToast('Describe what to improve.', 'error'); return true; }
+        if (window.selfImproveRunning) {
+          addToast('Self-improvement already in progress.', 'warning');
+          return true;
+        }
+        window.selfImproveRunning = true;
 
-case '/self-improve': {
-  if (!args) { addToast('Describe what to improve.', 'error'); return true; }
-  if (window.selfImproveRunning) {
-    addToast('Self-improvement already in progress.', 'warning');
-    return true;
-  }
-  window.selfImproveRunning = true;
+        const slug = args.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
+        const newBranch = `self-improve/${Date.now()}-${slug}`;
+        const originalRepo = currentRepo;
+        const originalBranch = currentBranch;
 
-  const slug = args.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
-  const newBranch = `self-improve/${Date.now()}-${slug}`;
-  const originalRepo = currentRepo;
-  const originalBranch = currentBranch;
+        setMessages(prev => [...prev, { role: 'user', content: `/self-improve ${args}` }]);
 
-  setMessages(prev => [...prev, { role: 'user', content: `/self-improve ${args}` }]);
+        const wait = (ms) => new Promise(r => setTimeout(r, ms));
 
-  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+        (async () => {
+          try {
+            // Step 1: Detect default branch and create branch
+            addToast(`🌿 Detecting default branch...`, 'info');
+            let defaultBranch = 'main';
+            try {
+              defaultBranch = await window.GitHubService.getDefaultBranch(originalRepo, githubToken);
+              addToast(`📌 Default branch is ${defaultBranch}`, 'info');
+            } catch (e) {
+              addToast(`Could not detect default branch, using 'main'`, 'warning');
+            }
 
-  (async () => {
-    try {
-      // Step 1: Create branch
-      addToast(`🌿 Creating branch ${newBranch}...`, 'info');
-      setMessages(prev => [...prev, { role: 'assistant', content: `🌿 **Step 1/4:** Creating branch \`${newBranch}\`...` }]);
-      await window.GitHubService.createBranch(originalRepo, 'main', newBranch, githubToken);
-      setCurrentBranch(newBranch);
-      await wait(800);
-      await fetchFileTree();
+            addToast(`🌿 Creating branch ${newBranch} from ${defaultBranch}...`, 'info');
+            setMessages(prev => [...prev, { role: 'assistant', content: `🌿 **Step 1/4:** Creating branch \`${newBranch}\` from \`${defaultBranch}\`...` }]);
+            await window.GitHubService.createBranch(originalRepo, defaultBranch, newBranch, githubToken);
+            setCurrentBranch(newBranch);
+            await wait(800);
+            await fetchFileTree();
 
-      const prevMode = window.Orchestrator.getState().mode;
-      window.Orchestrator.setMode('autopilot');
+            const prevMode = window.Orchestrator.getState().mode;
+            window.Orchestrator.setMode('autopilot');
 
-      // Step 2: Plan
-      setMessages(prev => [...prev, { role: 'assistant', content: `📋 **Step 2/4:** Planning changes for: "${args}"...` }]);
-      addToast('📋 Planning...', 'info');
-      await wait(300);
+            // Step 2: Plan
+            setMessages(prev => [...prev, { role: 'assistant', content: `📋 **Step 2/4:** Planning changes for: "${args}"...` }]);
+            addToast('📋 Planning...', 'info');
+            await wait(300);
 
-      const planResult = await window.Orchestrator.runPlanPhase({
-        goal: args,
-        repo: originalRepo,
-        branch: newBranch,
-        githubToken,
-        provider, model: selectedModel, thinkingMode, reasoningEffort,
-        fileTree, addToast, setMessages,
-        projectMemory, userMemory, systemPromptOverride,
-      });
+            const planResult = await window.Orchestrator.runPlanPhase({
+              goal: args,
+              repo: originalRepo,
+              branch: newBranch,
+              githubToken,
+              provider, model: selectedModel, thinkingMode, reasoningEffort,
+              fileTree, addToast, setMessages,
+              projectMemory, userMemory, systemPromptOverride,
+            });
 
-      if (planResult?.error) throw new Error(planResult.message || 'Planning failed');
-      addToast('✅ Plan complete', 'success');
-      await wait(1000);
+            if (planResult?.error) throw new Error(planResult.message || 'Planning failed');
+            addToast('✅ Plan complete', 'success');
+            await wait(1000);
 
-      // Step 3: Execute
-      setMessages(prev => [...prev, { role: 'assistant', content: `🔨 **Step 3/4:** Executing tasks...` }]);
-      addToast('🔨 Executing...', 'info');
-      await wait(300);
+            // Step 3: Execute
+            setMessages(prev => [...prev, { role: 'assistant', content: `🔨 **Step 3/4:** Executing tasks...` }]);
+            addToast('🔨 Executing...', 'info');
+            await wait(300);
 
-      await window.Orchestrator.runExecutePhase({
-        repo: originalRepo,
-        branch: newBranch,
-        githubToken,
-        provider, model: selectedModel, thinkingMode, reasoningEffort,
-        projectMemory, userMemory, systemPromptOverride,
-        addToast, setMessages,
-        setActiveFileContent, setActiveFilePath, setActiveTab,
-      });
+            await window.Orchestrator.runExecutePhase({
+              repo: originalRepo,
+              branch: newBranch,
+              githubToken,
+              provider, model: selectedModel, thinkingMode, reasoningEffort,
+              projectMemory, userMemory, systemPromptOverride,
+              addToast, setMessages,
+              setActiveFileContent, setActiveFilePath, setActiveTab,
+            });
 
-      addToast('✅ Execution complete', 'success');
-      await wait(1000);
+            addToast('✅ Execution complete', 'success');
+            await wait(1000);
 
-      // Step 4: Review
-      setMessages(prev => [...prev, { role: 'assistant', content: `🔍 **Step 4/4:** Reviewing changes...` }]);
-      addToast('🔍 Reviewing...', 'info');
-      await wait(300);
+            // Step 4: Review
+            setMessages(prev => [...prev, { role: 'assistant', content: `🔍 **Step 4/4:** Reviewing changes...` }]);
+            addToast('🔍 Reviewing...', 'info');
+            await wait(300);
 
-      await window.Orchestrator.runReviewPhase({
-        repo: originalRepo,
-        branch: newBranch,
-        githubToken,
-        provider, model: selectedModel, thinkingMode, reasoningEffort,
-        fileTree, addToast, setMessages,
-        projectMemory, userMemory, systemPromptOverride,
-      });
+            await window.Orchestrator.runReviewPhase({
+              repo: originalRepo,
+              branch: newBranch,
+              githubToken,
+              provider, model: selectedModel, thinkingMode, reasoningEffort,
+              fileTree, addToast, setMessages,
+              projectMemory, userMemory, systemPromptOverride,
+            });
 
-      window.Orchestrator.setMode(prevMode);
-      addToast('✅ Review complete', 'success');
-      await wait(500);
+            window.Orchestrator.setMode(prevMode);
+            addToast('✅ Review complete', 'success');
+            await wait(500);
 
-      // Step 5: Open PR
-      const prTitle = `Self-improve: ${args.slice(0, 60)}`;
-      const pr = await window.GitHubService.createPullRequest(
-        originalRepo, newBranch, prTitle, 'main', githubToken
-      );
+            // Step 5: Open PR (targets the same default branch)
+            const prTitle = `Self-improve: ${args.slice(0, 60)}`;
+            const pr = await window.GitHubService.createPullRequest(
+              originalRepo, newBranch, prTitle, defaultBranch, githubToken
+            );
 
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `✅ **Self-improvement complete!**\n\n🔀 Pull Request: ${pr.html_url}\n\nReview and merge when ready.`,
-      }]);
-      addToast(`🎉 PR opened!`, 'success');
+            setMessages(prev => [...prev, {
+              role: 'assistant',
+              content: `✅ **Self-improvement complete!**\n\n🔀 Pull Request: ${pr.html_url}\n\nReview and merge when ready.`,
+            }]);
+            addToast(`🎉 PR opened!`, 'success');
 
-    } catch (err) {
-      addToast(`Self-improve failed: ${err.message}`, 'error');
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `❌ **Self-improve failed:** ${err.message}\n\nTip: Run steps manually:\n1. \`/plan ${args}\`\n2. \`/execute\`\n3. \`/review\``,
-      }]);
-    } finally {
-      setCurrentBranch(originalBranch);
-      await fetchFileTree();
-      window.selfImproveRunning = false;
-    }
-  })();
+          } catch (err) {
+            addToast(`Self-improve failed: ${err.message}`, 'error');
+            setMessages(prev => [...prev, {
+              role: 'assistant',
+              content: `❌ **Self-improve failed:** ${err.message}\n\nTip: Run steps manually:\n1. \`/plan ${args}\`\n2. \`/execute\`\n3. \`/review\``,
+            }]);
+          } finally {
+            setCurrentBranch(originalBranch);
+            await fetchFileTree();
+            window.selfImproveRunning = false;
+          }
+        })();
 
-  return true;
-}
+        return true;
+      }
       case '/execute': {
         await window.Orchestrator.runExecutePhase({ repo: currentRepo, branch: currentBranch, githubToken, provider, model: selectedModel, thinkingMode, reasoningEffort, projectMemory, userMemory, systemPromptOverride, addToast, setMessages, setActiveFileContent, setActiveFilePath, setActiveTab });
         refreshTasks();
@@ -692,7 +704,6 @@ case '/self-improve': {
   // ========== Render ==========
   return React.createElement('div', { className: 'flex flex-col h-screen bg-zinc-950 text-zinc-200 overflow-hidden' },
 
-    // Toast notifications (outside the error boundary)
     React.createElement('div', { className: 'fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none' },
       toasts.map(t => React.createElement('div', {
         key: t.id,
@@ -705,7 +716,6 @@ case '/self-improve': {
       }, t.message))
     ),
 
-    // Navbar
     React.createElement(window.Navbar, {
       workspace, setWorkspace,
       currentRepo, setCurrentRepo,
@@ -723,11 +733,8 @@ case '/self-improve': {
       reasoningEffort, setReasoningEffort,
     }),
 
-    // Main content wrapped in ErrorBoundary
     React.createElement(window.ErrorBoundary, null,
       React.createElement('div', { className: 'flex-1 flex overflow-hidden' },
-
-        // Conversation list sidebar
         React.createElement('div', { className: 'w-40 sm:w-48 bg-zinc-950 border-r border-zinc-900 flex flex-col shrink-0' },
           React.createElement('div', { className: 'p-2 border-b border-zinc-900 flex items-center justify-between' },
             React.createElement('span', { className: 'font-bold text-[10px] uppercase text-zinc-600 tracking-widest' }, 'Chats'),
@@ -753,8 +760,6 @@ case '/self-improve': {
             )
           )
         ),
-
-        // Tabs area
         React.createElement('div', { className: 'flex-1 flex overflow-hidden' },
           (activeTab === 'tree' || activeTab === 'memory') && React.createElement(window.LeftPane, {
             memory: projectMemory, fileTree, activeFilePath, onFileClick: loadFile
