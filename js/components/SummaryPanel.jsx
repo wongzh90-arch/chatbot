@@ -3,23 +3,42 @@ const { useState, useEffect } = React;
 window.SummaryPanel = ({ conversationId, messages, onRegenerate }) => {
   const [summary, setSummary] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isOpen, setIsOpen] = useState(false); // hidden by default
+  const [isOpen, setIsOpen] = useState(false);
 
-  // Load summary when conversation changes
-  useEffect(() => {
+  // Load summary from storage
+  const loadSummary = () => {
     const saved = window.SummaryService.getSummary(conversationId);
-    if (saved) setSummary(saved);
-    else setSummary('');
+    setSummary(saved || '');
+  };
+
+  // Initial load and when conversation changes
+  useEffect(() => {
+    loadSummary();
+  }, [conversationId]);
+
+  // Listen for summary-updated events (from maybeSummarise)
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.detail && e.detail.conversationId === conversationId) {
+        setSummary(e.detail.summary);
+      }
+    };
+    window.addEventListener('summary-updated', handler);
+    return () => window.removeEventListener('summary-updated', handler);
   }, [conversationId]);
 
   const handleRegenerate = async () => {
     setIsLoading(true);
-    const newSummary = await window.SummaryService.generateSummary(messages);
+    const newSummary = await window.SummaryService.maybeSummarise(conversationId, messages, 'manual');
     if (newSummary) {
       setSummary(newSummary);
-      localStorage.setItem(`chat_summary_${conversationId}`, newSummary);
-      // Also update the last turn marker
-      localStorage.setItem(`chat_summary_${conversationId}_last_turn`, messages.length);
+    } else {
+      // Fallback: try direct generate
+      const direct = await window.SummaryService.generateSummary(messages);
+      if (direct) {
+        localStorage.setItem(`chat_summary_${conversationId}`, direct);
+        setSummary(direct);
+      }
     }
     setIsLoading(false);
     if (onRegenerate) onRegenerate();
@@ -36,7 +55,6 @@ window.SummaryPanel = ({ conversationId, messages, onRegenerate }) => {
   return React.createElement('div', {
     className: 'fixed bottom-4 right-4 w-80 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl z-30 flex flex-col max-h-96'
   },
-    // Header
     React.createElement('div', {
       className: 'flex justify-between items-center p-3 border-b border-zinc-800 bg-zinc-950 rounded-t-xl'
     },
@@ -46,7 +64,6 @@ window.SummaryPanel = ({ conversationId, messages, onRegenerate }) => {
         className: 'text-zinc-500 hover:text-zinc-300 text-sm'
       }, '×')
     ),
-    // Content
     React.createElement('div', { className: 'p-3 overflow-y-auto text-sm text-zinc-300 space-y-2 custom-scrollbar' },
       isLoading
         ? React.createElement('div', { className: 'flex gap-1 justify-center py-4' },
@@ -59,7 +76,6 @@ window.SummaryPanel = ({ conversationId, messages, onRegenerate }) => {
             : React.createElement('p', { className: 'text-zinc-500 italic' }, 'No summary yet. Start a conversation or click refresh.')
           )
     ),
-    // Footer
     React.createElement('div', { className: 'p-2 border-t border-zinc-800 flex justify-end gap-2' },
       React.createElement('button', {
         onClick: handleRegenerate,
