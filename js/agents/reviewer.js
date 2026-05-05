@@ -2,7 +2,7 @@ window.ReviewerAgent = (() => {
     async function reviewCompletedTasks({
         tasks,
         repo, branch, githubToken,
-        openRouterKey, model,
+        provider, model, thinkingMode, reasoningEffort,
         fileTree,
         addToast,
         projectMemory,
@@ -66,20 +66,22 @@ Be concise.`;
 
             const userContent = `Review the completed task: ${task.title}`;
 
-            const reply = await window.OpenRouterService.chatCompletion({
-                messages: [{ role: 'user', content: 'Review this.' }],
+            const reply = await window.LLMProvider.chatCompletion({
+                provider,
                 model,
-                apiKey: openRouterKey,
+                messages: [{ role: 'user', content: 'Review this.' }],
                 systemPrompt: sysPrompt,
-                userContent
+                userContent,
+                thinkingMode,
+                reasoningEffort,
             });
 
-            if (reply.trim().startsWith('PASS')) {
+            if (reply.content.trim().startsWith('PASS')) {
                 await window.TaskManager.addComment(repo, task.number, `✅ **Review passed.**`, githubToken);
                 await window.TaskManager.updateTaskStatus(repo, task.number, 'DONE', githubToken);
             } else {
                 totalIssuesFound++;
-                await window.TaskManager.addComment(repo, task.number, `⚠️ **Review found issues:**\n\n${reply}`, githubToken);
+                await window.TaskManager.addComment(repo, task.number, `⚠️ **Review found issues:**\n\n${reply.content}`, githubToken);
                 await window.TaskManager.updateTaskStatus(repo, task.number, 'TODO', githubToken);
                 await fetch(`https://api.github.com/repos/${repo}/issues/${task.number}/labels`, {
                     method: 'POST',
