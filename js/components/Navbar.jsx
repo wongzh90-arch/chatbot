@@ -9,24 +9,29 @@ window.Navbar = ({
   isLoading,
   rememberKeys, setRememberKeys,
   activeTab, setActiveTab,
+  models,           // <-- new: list from ModelRegistry
+  modelsLoading,    // <-- new: boolean
 }) => {
   const [showSettings, setShowSettings] = React.useState(false);
+  const [freeOnly, setFreeOnly] = React.useState(false); // <-- new: filter state
+
+  // Heuristic to determine if a model is free
+  const isFreeModel = (model) => {
+    if (model.free) return true; // trust explicit flag if present
+    const id = model.value.toLowerCase();
+    const label = model.label.toLowerCase();
+    return id.includes(':free') || label.includes('(free)') || label.includes('free');
+  };
+
+  const filteredModels = freeOnly
+    ? models.filter(isFreeModel)
+    : models;
 
   const tabs = [
     { id: 'chat', label: '💬', title: 'Chat' },
     { id: 'editor', label: '📝', title: 'Editor' },
     { id: 'tree', label: '📁', title: 'Files' },
     { id: 'tasks', label: '📋', title: 'Tasks' },
-  ];
-
-  const models = [
-    { value: 'openrouter/auto', label: 'Auto (Best Free)' },
-    { value: 'anthropic/claude-3-haiku', label: 'Claude 3 Haiku' },
-    { value: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
-    { value: 'google/gemini-flash-1.5', label: 'Gemini 1.5 Flash' },
-    { value: 'google/gemini-pro-1.5', label: 'Gemini 1.5 Pro' },
-    { value: 'meta-llama/llama-3.1-8b-instruct:free', label: 'Llama 3.1 8B (Free)' },
-    { value: 'mistralai/mistral-7b-instruct:free', label: 'Mistral 7B (Free)' },
   ];
 
   return React.createElement('header', {
@@ -82,13 +87,28 @@ window.Navbar = ({
         className: 'px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg border border-zinc-700 transition disabled:opacity-40 text-xs font-bold'
       }, isLoading ? '⟳' : 'Fetch'),
 
-      // Model select
-      React.createElement('select', {
-        value: selectedModel,
-        onChange: e => setSelectedModel(e.target.value),
-        className: 'p-1.5 rounded-lg bg-zinc-800 border border-zinc-700 outline-none text-xs text-zinc-300 hidden md:block'
-      },
-        models.map(m => React.createElement('option', { key: m.value, value: m.value }, m.label))
+      // Model select with free-only toggle
+      React.createElement('div', { className: 'hidden md:flex items-center gap-2' },
+        React.createElement('select', {
+          value: selectedModel,
+          onChange: e => setSelectedModel(e.target.value),
+          className: 'p-1.5 rounded-lg bg-zinc-800 border border-zinc-700 outline-none text-xs text-zinc-300',
+          disabled: modelsLoading
+        },
+          modelsLoading && React.createElement('option', null, 'Loading models...'),
+          !modelsLoading && filteredModels.map(m =>
+            React.createElement('option', { key: m.value, value: m.value }, m.label)
+          )
+        ),
+        React.createElement('label', { className: 'flex items-center gap-1 text-xs text-zinc-500 cursor-pointer whitespace-nowrap' },
+          React.createElement('input', {
+            type: 'checkbox',
+            checked: freeOnly,
+            onChange: e => setFreeOnly(e.target.checked),
+            className: 'accent-amber-500 w-3 h-3'
+          }),
+          'Free only'
+        )
       ),
 
       // Spacer
