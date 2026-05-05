@@ -24,7 +24,6 @@ window.ChatPane = ({
                 )
             )
         ),
-        // ... rest of the input area unchanged (same as before)
         React.createElement('div', { className: 'absolute bottom-0 left-0 right-0 p-3 bg-zinc-950 border-t border-zinc-900' },
             showCmdHints && React.createElement('div', { className: 'absolute bottom-full left-3 right-3 mb-2 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl overflow-hidden z-20' },
                 window.COMMANDS.filter(c => c.cmd.startsWith(inputPrompt.split(' ')[0].toLowerCase())).map((c, i) =>
