@@ -83,7 +83,6 @@ window.Orchestrator = (() => {
         addToast, setMessages,
         setActiveFileContent, setActiveFilePath, setActiveTab
     }) {
-        // Guard: don't execute if already done
         if (state.phase === 'done') {
             return { done: true };
         }
@@ -105,7 +104,6 @@ window.Orchestrator = (() => {
         });
 
         if (!result) {
-            // No more TODO tasks — move to review
             addToast('All tasks done. Moving to review...', 'info');
             return await runReviewPhase({
                 repo, branch, githubToken,
@@ -120,11 +118,12 @@ window.Orchestrator = (() => {
             content: `🔨 Executed **${result.title}** [#${result.issueNumber || result.number}]`
         }]);
 
-        // NOTE: task is already marked DONE inside executor — no duplicate call here
         state.lastExecutedTask = result;
 
         if (state.mode === 'autopilot') {
             addToast('🤖 Autopilot: continuing to next task...', 'info');
+            // Let GitHub settle before the next fetch to avoid reading stale labels
+            await new Promise(r => setTimeout(r, 1000));
             return await runExecutePhase({
                 repo, branch, githubToken,
                 provider, model, thinkingMode, reasoningEffort,
@@ -143,7 +142,6 @@ window.Orchestrator = (() => {
         fileTree, addToast, setMessages,
         projectMemory, userMemory, systemPromptOverride
     }) {
-        // Guard: don't review if already done
         if (state.phase === 'done') {
             return { done: true };
         }
@@ -174,7 +172,6 @@ window.Orchestrator = (() => {
                 content: '✅ **All tasks reviewed and passed!** Ready to merge.'
             }]);
 
-            // Guard: only close milestone once
             if (state.milestone && !state.milestoneClosed) {
                 state.milestoneClosed = true;
                 await window.TaskManager.closeMilestone(repo, state.milestone.number, githubToken);
