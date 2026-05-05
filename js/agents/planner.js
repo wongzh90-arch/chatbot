@@ -2,7 +2,7 @@ window.PlannerAgent = (() => {
     async function analyzeAndPlan({
         goal,
         repo, branch, githubToken,
-        openRouterKey, model,
+        provider, model, thinkingMode, reasoningEffort,
         fileTree,
         addToast,
         projectMemory,
@@ -43,12 +43,10 @@ Rules:
 - Dependencies must be acyclic.
 - Return ONLY the JSON object, no markdown wrappers.`;
 
-        // Apply system override
         if (systemPromptOverride && systemPromptOverride.trim()) {
             sysPrompt = systemPromptOverride + '\n\n' + sysPrompt;
         }
 
-        // Inject relevant user preferences
         if (userMemory && userMemory.length) {
             const context = goal + ' ' + repo + ' ' + branch;
             const relevantPrefs = window.ContextMatcher.selectRelevant(userMemory, context, 3);
@@ -63,15 +61,17 @@ Rules:
 
         const userContent = `Analyze the repository ${repo} and create a plan to: ${goal}`;
 
-        const reply = await window.OpenRouterService.chatCompletion({
-            messages: [{ role: 'user', content: 'Plan this.' }],
+        const reply = await window.LLMProvider.chatCompletion({
+            provider,
             model,
-            apiKey: openRouterKey,
+            messages: [{ role: 'user', content: 'Plan this.' }],
             systemPrompt: sysPrompt,
-            userContent
+            userContent,
+            thinkingMode,
+            reasoningEffort,
         });
 
-        let jsonStr = reply.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+        let jsonStr = reply.content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
         const jsonMatch = jsonStr.match(/(\{[\s\S]*\})/);
         if (jsonMatch) jsonStr = jsonMatch[1];
 
@@ -80,7 +80,7 @@ Rules:
             plan = JSON.parse(jsonStr);
         } catch {
             addToast('Failed to parse plan JSON. Raw reply shown in chat.', 'error');
-            return { error: 'PARSE_FAILED', raw: reply };
+            return { error: 'PARSE_FAILED', raw: reply.content };
         }
 
         addToast(`Plan created: ${plan.tasks.length} tasks`, 'success');
