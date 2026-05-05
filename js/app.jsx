@@ -384,7 +384,6 @@ function App() {
             workspace, setWorkspace,
             currentRepo, setCurrentRepo,
             currentBranch, setCurrentBranch,
-            openRouterKey, setOpenRouterKey,
             githubToken, setGithubToken,
             selectedModel, setSelectedModel,
             deployHook, setDeployHook,
@@ -392,7 +391,6 @@ function App() {
             isLoading,
             rememberKeys, setRememberKeys,
             activeTab, setActiveTab,
-            langSearchKey, setLangSearchKey,
         }),
 
         React.createElement('div', { className: 'flex-1 flex flex-col lg:flex-row overflow-hidden' },
