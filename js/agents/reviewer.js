@@ -23,52 +23,51 @@ window.ReviewerAgent = (() => {
         let totalIssuesFound = 0;
 
         for (const task of doneTasks) {
-            await window.TaskManager.updateTaskStatus(repo, task.number, 'REVIEW', githubToken);
+            try {
+                await window.TaskManager.updateTaskStatus(repo, task.number, 'REVIEW', githubToken);
 
-            // ── NEW: load the actual files changed by this task ──
-            const body = task.body || '';
-            const fileMatch = body.match(/\*\*Files:\*\*\s*(.*)/);
-            const targetFiles = fileMatch
-                ? fileMatch[1].split(',').map(f => f.trim()).filter(Boolean)
-                : [];
+                // ── load files changed by this task ──
+                const body = task.body || '';
+                const fileMatch = body.match(/\*\*Files:\*\*\s*(.*)/);
+                const targetFiles = fileMatch
+                    ? fileMatch[1].split(',').map(f => f.trim()).filter(Boolean)
+                    : [];
 
-            const fileContents = {};
-            for (const path of targetFiles.slice(0, 2)) {  // limit to 2 files for token economy
-                try {
-                    const { content } = await window.GitHubService.loadFileContent(
-                        repo, branch, path, githubToken
-                    );
-                    // Truncate large files — send only first 150 lines
-                    const lines = content.split('\n');
-                    const truncated = lines.length > 150
-                        ? lines.slice(0, 150).join('\n') + '\n\n// ... (truncated for brevity)'
-                        : content;
-                    fileContents[path] = truncated;
-                } catch (e) {
-                    // file doesn't exist – probably an older task or mis-specified file
-                    fileContents[path] = '[File not found or inaccessible]';
+                const fileContents = {};
+                for (const path of targetFiles.slice(0, 2)) {
+                    try {
+                        const { content } = await window.GitHubService.loadFileContent(
+                            repo, branch, path, githubToken
+                        );
+                        const lines = content.split('\n');
+                        const truncated = lines.length > 150
+                            ? lines.slice(0, 150).join('\n') + '\n\n// ... (truncated)'
+                            : content;
+                        fileContents[path] = truncated;
+                    } catch (e) {
+                        fileContents[path] = `[File not accessible: ${e.message}]`;
+                    }
                 }
-            }
 
-            // ── Build the system prompt, now including the actual code ──
-            let sysPrompt = `You are a code reviewer. Review the following completed task for quality.
+                // ── build system prompt with actual file content ──
+                let sysPrompt = `You are a code reviewer. Review the following completed task for quality.
 
 Task: ${task.title}
 Task details: ${body}
 
 Repository: ${repo}
-File tree: ${fileTree.map(f => f.path).join(', ')}
+Other files in repo: ${(fileTree || []).map(f => f.path).slice(0, 20).join(', ')}
 
-Files changed (content after the task was executed):
+Files changed (content after execution):
 ${Object.entries(fileContents)
     .map(([p, content]) => `--- ${p} ---\n${content}`)
     .join('\n\n')}
 
 Check for:
 1. Logic errors or bugs
-2. Style inconsistencies with the rest of the codebase
+2. Style inconsistencies
 3. Missing edge cases
-4. Security issues (XSS, injection, etc.)
+4. Security issues
 5. Performance problems
 
 If everything looks good, reply "PASS". If you find issues, reply with:
@@ -76,54 +75,61 @@ ISSUES:
 - [Issue 1 description]
 - [Issue 2 description]
 ...
-
 Be concise.`;
 
-            if (systemPromptOverride && systemPromptOverride.trim()) {
-                sysPrompt = systemPromptOverride + '\n\n' + sysPrompt;
-            }
-
-            if (userMemory && userMemory.length) {
-                const context = task.title + ' ' + (task.body || '');
-                const relevantPrefs = window.ContextMatcher.selectRelevant(userMemory, context, 3);
-                if (relevantPrefs.length) {
-                    sysPrompt += '\n\nRELEVANT USER PREFERENCES:\n' + relevantPrefs.map((p, i) => `${i+1}. ${p}`).join('\n');
+                if (systemPromptOverride && systemPromptOverride.trim()) {
+                    sysPrompt = systemPromptOverride + '\n\n' + sysPrompt;
                 }
-            }
 
-            if (projectMemory && projectMemory.length) {
-                sysPrompt += '\n\nPROJECT MEMORY:\n' + projectMemory.map((m, i) => `${i+1}. ${m}`).join('\n');
-            }
+                if (userMemory && userMemory.length) {
+                    const context = task.title + ' ' + (task.body || '');
+                    const relevantPrefs = window.ContextMatcher.selectRelevant(userMemory, context, 3);
+                    if (relevantPrefs.length) {
+                        sysPrompt += '\n\nRELEVANT USER PREFERENCES:\n' + relevantPrefs.map((p, i) => `${i+1}. ${p}`).join('\n');
+                    }
+                }
 
-            const userContent = `Review the completed task: ${task.title}`;
+                if (projectMemory && projectMemory.length) {
+                    sysPrompt += '\n\nPROJECT MEMORY:\n' + projectMemory.map((m, i) => `${i+1}. ${m}`).join('\n');
+                }
 
-            const reply = await window.LLMProvider.chatCompletion({
-                provider,
-                model,
-                messages: [{ role: 'user', content: 'Review this.' }],
-                systemPrompt: sysPrompt,
-                userContent,
-                thinkingMode,
-                reasoningEffort,
-            });
+                const userContent = `Review the completed task: ${task.title}`;
 
-            if (reply.content.trim().startsWith('PASS')) {
-                await window.TaskManager.addComment(repo, task.number, `✅ **Review passed.**`, githubToken);
-                await window.TaskManager.updateTaskStatus(repo, task.number, 'DONE', githubToken);
-            } else {
-                totalIssuesFound++;
-                await window.TaskManager.addComment(repo, task.number, `⚠️ **Review found issues:**\n\n${reply.content}`, githubToken);
-                await window.TaskManager.updateTaskStatus(repo, task.number, 'TODO', githubToken);
-                await fetch(`https://api.github.com/repos/${repo}/issues/${task.number}/labels`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${githubToken}`,
-                        'Accept': 'application/vnd.github.v3+json',
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ labels: [window.TaskManager.LABELS.BUG.name] })
+                const reply = await window.LLMProvider.chatCompletion({
+                    provider,
+                    model,
+                    messages: [{ role: 'user', content: 'Review this.' }],
+                    systemPrompt: sysPrompt,
+                    userContent,
+                    thinkingMode,
+                    reasoningEffort,
                 });
-                addToast(`🐛 Issues found in "${task.title}"`, 'warning');
+
+                // Fixed: case-insensitive check for "PASS" as first word
+                const ok = /^\s*PASS\b/i.test(reply.content);
+
+                if (ok) {
+                    await window.TaskManager.addComment(repo, task.number, `✅ **Review passed.**`, githubToken);
+                    await window.TaskManager.updateTaskStatus(repo, task.number, 'DONE', githubToken);
+                } else {
+                    totalIssuesFound++;
+                    await window.TaskManager.addComment(repo, task.number, `⚠️ **Review found issues:**\n\n${reply.content}`, githubToken);
+                    await window.TaskManager.updateTaskStatus(repo, task.number, 'TODO', githubToken);
+                    await fetch(`https://api.github.com/repos/${repo}/issues/${task.number}/labels`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${githubToken}`,
+                            'Accept': 'application/vnd.github.v3+json',
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ labels: [window.TaskManager.LABELS.BUG.name] })
+                    });
+                    addToast(`🐛 Issues found in "${task.title}"`, 'warning');
+                }
+            } catch (err) {
+                console.error(`Review failed for task #${task.number}:`, err);
+                addToast(`Error reviewing task #${task.number}: ${err.message}`, 'error');
+                // Leave the task as REVIEW so it can be retried manually
             }
         }
 
