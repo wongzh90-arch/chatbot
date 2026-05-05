@@ -469,17 +469,24 @@ function App() {
         reasoningEffort,
         onToken: (_, accumulated) => setStreamingMessage(accumulated),
         onDone: (fullContent, usedModel, reasoning) => {
-          const { modifiedReply, actions } = window.processAgentSkills(fullContent);
-          if (actions.updateEditorContent) {
-            setActiveFileContent(actions.updateEditorContent);
-            addToast('Agent updated editor', 'success');
-            setActiveTab('editor');
+          try {
+            const { modifiedReply, actions } = window.processAgentSkills(fullContent || '');
+            if (actions.updateEditorContent) {
+              setActiveFileContent(actions.updateEditorContent);
+              addToast('Agent updated editor', 'success');
+              setActiveTab('editor');
+            }
+            setMessages(prev => [...prev, { role: 'assistant', content: modifiedReply, model: usedModel, reasoning_content: reasoning }]);
+          } catch (err) {
+            console.error('processAgentSkills error:', err);
+            addToast('Error processing response, showing raw output.', 'error');
+            setMessages(prev => [...prev, { role: 'assistant', content: fullContent || '(no content)', model: usedModel }]);
+          } finally {
+            setStreamingMessage('');
+            setStreamingReasoning(null);
+            setUploadedContext(null);
+            setIsLoading(false);
           }
-          setMessages(prev => [...prev, { role: 'assistant', content: modifiedReply, model: usedModel, reasoning_content: reasoning }]);
-          setStreamingMessage('');
-          setStreamingReasoning(null);
-          setUploadedContext(null);
-          setIsLoading(false);
         },
         onError: (e) => {
           addToast(e.message, 'error');
