@@ -1,4 +1,8 @@
 window.processAgentSkills = function(aiReply) {
+    if (typeof aiReply !== 'string') {
+        return { modifiedReply: String(aiReply || ''), actions: { updateEditorContent: null, readFiles: [] } };
+    }
+
     let updated = aiReply;
     let updateEditorContent = null;
     const readFiles = [];
