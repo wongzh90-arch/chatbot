@@ -83,7 +83,6 @@ window.TaskManager = (() => {
     }
 
     async function getTasksByMilestone(repo, milestoneNumber, token) {
-        // Use state=all so DONE tasks (which may be closed) are also visible to reviewer
         const res = await fetch(
             `https://api.github.com/repos/${repo}/issues?milestone=${milestoneNumber}&state=all&per_page=100`,
             { headers: headers(token) }
@@ -94,6 +93,7 @@ window.TaskManager = (() => {
     }
 
     async function updateTaskStatus(repo, issueNumber, statusLabel, token) {
+        // Fetch current labels
         const current = await fetch(
             `https://api.github.com/repos/${repo}/issues/${issueNumber}`,
             { headers: headers(token) }
@@ -101,21 +101,25 @@ window.TaskManager = (() => {
         if (!current.ok) return;
         const issue = await current.json();
 
-        // Remove all existing task: labels
-        const taskLabels = issue.labels.filter(l => l.name.startsWith('task:')).map(l => l.name);
-        for (const label of taskLabels) {
-            await fetch(
-                `https://api.github.com/repos/${repo}/issues/${issueNumber}/labels/${encodeURIComponent(label)}`,
-                { method: 'DELETE', headers: headers(token) }
-            );
-        }
+        // Keep non‑task labels, replace the task: label with the new one
+        const newLabel = LABELS[statusLabel]?.name || statusLabel;
+        const labelsToSet = issue.labels
+            .filter(l => !l.name.startsWith('task:'))
+            .map(l => l.name)
+            .concat(newLabel);
 
-        // Add the new status label
-        await fetch(`https://api.github.com/repos/${repo}/issues/${issueNumber}/labels`, {
-            method: 'POST',
-            headers: headers(token),
-            body: JSON.stringify({ labels: [LABELS[statusLabel]?.name || statusLabel] })
-        });
+        // Atomic PUT – replaces all labels in one call, no race condition
+        const res = await fetch(
+            `https://api.github.com/repos/${repo}/issues/${issueNumber}/labels`,
+            {
+                method: 'PUT',
+                headers: headers(token),
+                body: JSON.stringify({ labels: labelsToSet })
+            }
+        );
+        if (!res.ok) {
+            console.error('Failed to update task status', await res.text());
+        }
     }
 
     async function addComment(repo, issueNumber, body, token) {
