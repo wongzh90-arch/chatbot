@@ -288,12 +288,6 @@ function App() {
         ]);
         await window.SummaryService.maybeSummarise(activeConversationId, [...messages, { role: 'user', content: userText }], 'command');
         return true;
-      case '/rollback':
-        await window.GitHubService.resetBranch(currentRepo, currentBranch, 'main', githubToken);
-        addToast('Branch reset to main', 'success');
-        await fetchFileTree();
-        setMessages(prev => [...prev, { role: 'assistant', content: '↩️ Branch reset to main.' }]);
-        return true;
       case '/clear':
         setMessages([{ role: 'assistant', content: 'Chat cleared.' }]);
         await window.SummaryService.maybeSummarise(activeConversationId, [{ role: 'assistant', content: 'Chat cleared.' }], 'command');
