@@ -14,6 +14,7 @@ window.TaskManager = (() => {
             body: JSON.stringify({ title, description, state: 'open' })
         });
         if (!res.ok) {
+            // 422 = milestone already exists with this title — find it and reuse
             if (res.status === 422) {
                 const existing = await fetch(
                     `https://api.github.com/repos/${repo}/milestones?state=open&per_page=100`,
@@ -23,7 +24,8 @@ window.TaskManager = (() => {
                 const found = list.find(m => m.title === title);
                 if (found) return found;
             }
-            throw new Error((await res.json()).message);
+            const err = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+            throw new Error(err.message || `Failed to create milestone: ${res.status}`);
         }
         return await res.json();
     }
@@ -34,12 +36,41 @@ window.TaskManager = (() => {
         return await res.json();
     }
 
+    async function getMilestone(repo, number, token) {
+        const res = await fetch(`https://api.github.com/repos/${repo}/milestones/${number}`, { headers: headers(token) });
+        if (!res.ok) return null;
+        return await res.json();
+    }
+
+    /**
+     * Idempotent milestone close. Checks current state first; only PATCHes if open.
+     * Swallows 404 / 422 / 410 as "already closed or gone".
+     */
     async function closeMilestone(repo, number, token) {
-        await fetch(`https://api.github.com/repos/${repo}/milestones/${number}`, {
-            method: 'PATCH',
-            headers: headers(token),
-            body: JSON.stringify({ state: 'closed' })
-        });
+        try {
+            const current = await getMilestone(repo, number, token);
+            if (!current) return { alreadyGone: true };
+            if (current.state === 'closed') return { alreadyClosed: true };
+
+            const res = await fetch(`https://api.github.com/repos/${repo}/milestones/${number}`, {
+                method: 'PATCH',
+                headers: headers(token),
+                body: JSON.stringify({ state: 'closed' })
+            });
+
+            if (!res.ok) {
+                // Treat 404/410/422 as "fine, milestone is unreachable / already in target state"
+                if (res.status === 404 || res.status === 410 || res.status === 422) {
+                    return { swallowed: res.status };
+                }
+                const text = await res.text();
+                throw new Error(`closeMilestone failed: ${res.status} ${text}`);
+            }
+            return { closed: true };
+        } catch (err) {
+            // Network errors only — propagate
+            throw err;
+        }
     }
 
     const LABELS = {
@@ -52,14 +83,14 @@ window.TaskManager = (() => {
     };
 
     async function ensureLabels(repo, token) {
-        for (const [key, label] of Object.entries(LABELS)) {
+        for (const [, label] of Object.entries(LABELS)) {
             try {
                 await fetch(`https://api.github.com/repos/${repo}/labels`, {
                     method: 'POST',
                     headers: headers(token),
                     body: JSON.stringify(label)
                 });
-                // 422 = label already exists, ignore
+                // 422 = already exists, ignore silently
             } catch { }
         }
     }
@@ -78,7 +109,10 @@ window.TaskManager = (() => {
                 labels: ['task:todo']
             })
         });
-        if (!res.ok) throw new Error((await res.json()).message);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+            throw new Error(err.message || `Failed to create task: ${res.status}`);
+        }
         return await res.json();
     }
 
@@ -92,23 +126,24 @@ window.TaskManager = (() => {
         return issues.filter(i => !i.pull_request);
     }
 
-    async function updateTaskStatus(repo, issueNumber, statusLabel, token) {
-        // Fetch current labels
+    async function updateTaskStatus(repo, issueNumber, statusKey, token) {
+        // Fetch current issue
         const current = await fetch(
             `https://api.github.com/repos/${repo}/issues/${issueNumber}`,
             { headers: headers(token) }
         );
-        if (!current.ok) return;
+        if (!current.ok) {
+            console.warn(`updateTaskStatus: cannot fetch issue #${issueNumber}: ${current.status}`);
+            return;
+        }
         const issue = await current.json();
 
-        // Keep non‑task labels, replace the task: label with the new one
-        const newLabel = LABELS[statusLabel]?.name || statusLabel;
+        const newLabel = LABELS[statusKey]?.name || statusKey;
         const labelsToSet = issue.labels
             .filter(l => !l.name.startsWith('task:'))
             .map(l => l.name)
             .concat(newLabel);
 
-        // Atomic PUT – replaces all labels in one call, no race condition
         const res = await fetch(
             `https://api.github.com/repos/${repo}/issues/${issueNumber}/labels`,
             {
@@ -118,7 +153,9 @@ window.TaskManager = (() => {
             }
         );
         if (!res.ok) {
-            console.error('Failed to update task status', await res.text());
+            const text = await res.text();
+            console.error(`Failed to update labels on #${issueNumber}: ${res.status} ${text}`);
+            // Don't throw — caller decides what to do
         }
     }
 
@@ -131,12 +168,15 @@ window.TaskManager = (() => {
                 body: JSON.stringify({ body })
             }
         );
-        if (!res.ok) throw new Error((await res.json()).message);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+            throw new Error(err.message || `Failed to add comment: ${res.status}`);
+        }
         return await res.json();
     }
 
     function parseBlockingIssues(body) {
-        const match = body.match(/\*\*Blocks:\*\*\s*(.*)/);
+        const match = (body || '').match(/\*\*Blocks:\*\*\s*(.*)/);
         if (!match) return [];
         return [...match[1].matchAll(/#(\d+)/g)].map(m => parseInt(m[1]));
     }
@@ -154,6 +194,7 @@ window.TaskManager = (() => {
         LABELS,
         createMilestone,
         getOpenMilestones,
+        getMilestone,
         closeMilestone,
         ensureLabels,
         createTask,
