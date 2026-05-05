@@ -11,6 +11,18 @@ window.ExecutorAgent = (() => {
         setActiveFilePath,
         setActiveTab,
     }) {
+        // Reset any tasks stuck in IN_PROGRESS back to TODO
+        // (happens when a previous run crashed mid-execution)
+        const stuckTasks = tasks.filter(t =>
+            t.labels.some(l => l.name === 'task:in_progress')
+        );
+        for (const stuck of stuckTasks) {
+            await window.TaskManager.updateTaskStatus(repo, stuck.number, 'TODO', githubToken);
+            // Update label in local array too so the find below works correctly
+            stuck.labels = stuck.labels.filter(l => !l.name.startsWith('task:'));
+            stuck.labels.push({ name: 'task:todo' });
+        }
+
         // Find an unblocked TODO task
         const todoTask = tasks.find(t => {
             const isTodo = t.labels.some(l => l.name === 'task:todo');
