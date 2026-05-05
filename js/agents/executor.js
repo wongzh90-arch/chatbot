@@ -11,19 +11,17 @@ window.ExecutorAgent = (() => {
         setActiveFilePath,
         setActiveTab,
     }) {
-        // Reset any tasks stuck in IN_PROGRESS back to TODO
-        // (happens when a previous run crashed mid-execution)
+        // Reset stuck IN_PROGRESS tasks
         const stuckTasks = tasks.filter(t =>
             t.labels.some(l => l.name === 'task:in_progress')
         );
         for (const stuck of stuckTasks) {
             await window.TaskManager.updateTaskStatus(repo, stuck.number, 'TODO', githubToken);
-            // Update label in local array too so the find below works correctly
             stuck.labels = stuck.labels.filter(l => !l.name.startsWith('task:'));
             stuck.labels.push({ name: 'task:todo' });
         }
 
-        // Find an unblocked TODO task
+        // Find unblocked TODO task
         const todoTask = tasks.find(t => {
             const isTodo = t.labels.some(l => l.name === 'task:todo');
             const unblocked = window.TaskManager.isUnblocked(t, tasks);
@@ -43,26 +41,24 @@ window.ExecutorAgent = (() => {
             : [];
         const description = body.replace(/\*\*Files:\*\*.*/, '').trim();
 
-        // Load only the first 2 target files to stay lean
+        // Load file contents
         const fileContents = {};
         for (const path of targetFiles.slice(0, 2)) {
             try {
                 const { content, sha } = await window.GitHubService.loadFileContent(
                     repo, branch, path, githubToken
                 );
-                // Truncate large files — send only first 150 lines
                 const lines = content.split('\n');
                 const truncated = lines.length > 150
-                    ? lines.slice(0, 150).join('\n') + '\n\n// ... (truncated for brevity)'
+                    ? lines.slice(0, 150).join('\n') + '\n\n// ... (truncated)'
                     : content;
                 fileContents[path] = { content, sha, preview: truncated };
             } catch (e) {
-                // File doesn't exist yet — executor will create it
                 fileContents[path] = { content: '', sha: null, preview: '' };
             }
         }
 
-        // Build lean system prompt
+        // Build system prompt
         let sysPrompt = `You are a coding assistant. Implement this task concisely.
 
 Repo: ${repo} | Branch: ${branch}
@@ -112,33 +108,45 @@ Respond with ONLY the updated file content wrapped in:
         const { modifiedReply, actions } = window.processAgentSkills(reply.content);
         addToast(`AI execution done for ${todoTask.title}`, 'info');
 
+        let committed = false;
+
         if (actions.updateEditorContent) {
             let filePath = targetFiles[0];
-
-            // Try to extract explicit file attribute
             const fileAttrMatch = reply.content.match(/<skill name="update_editor" file="([^"]+)"[^>]*>/i);
             if (fileAttrMatch) filePath = fileAttrMatch[1];
 
             const oldSha = fileContents[filePath]?.sha || null;
 
-            await window.GitHubService.commitFile(
-                repo, branch, filePath,
-                actions.updateEditorContent,
-                oldSha,
-                `Implement: ${todoTask.title}`,
-                githubToken
-            );
+            try {
+                await window.GitHubService.commitFile(
+                    repo, branch, filePath,
+                    actions.updateEditorContent,
+                    oldSha,
+                    `Implement: ${todoTask.title}`,
+                    githubToken
+                );
+                committed = true;
 
-            if (setActiveFileContent && setActiveFilePath) {
-                setActiveFilePath(filePath);
-                setActiveFileContent(actions.updateEditorContent);
-                if (setActiveTab) setActiveTab('editor');
+                if (setActiveFileContent && setActiveFilePath) {
+                    setActiveFilePath(filePath);
+                    setActiveFileContent(actions.updateEditorContent);
+                    if (setActiveTab) setActiveTab('editor');
+                }
+            } catch (err) {
+                addToast(`Commit failed for ${filePath}: ${err.message}`, 'error');
+                // Leave task as IN_PROGRESS so it can be retried
+                await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'TODO', githubToken);
+                return null;
             }
         }
 
-        // Mark as DONE here so the next loop iteration skips it
-        await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'DONE', githubToken);
+        if (!committed) {
+            addToast(`Warning: No code changes produced for ${todoTask.title}. Task remains TODO.`, 'warning');
+            await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'TODO', githubToken);
+            return null;
+        }
 
+        await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'DONE', githubToken);
         return { ...todoTask, issueNumber: todoTask.number };
     }
 
