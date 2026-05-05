@@ -14,7 +14,6 @@ window.TaskManager = (() => {
             body: JSON.stringify({ title, description, state: 'open' })
         });
         if (!res.ok) {
-            // 422 = milestone with this title already exists, find and return it
             if (res.status === 422) {
                 const existing = await fetch(
                     `https://api.github.com/repos/${repo}/milestones?state=open&per_page=100`,
@@ -55,12 +54,12 @@ window.TaskManager = (() => {
     async function ensureLabels(repo, token) {
         for (const [key, label] of Object.entries(LABELS)) {
             try {
-                const res = await fetch(`https://api.github.com/repos/${repo}/labels`, {
+                await fetch(`https://api.github.com/repos/${repo}/labels`, {
                     method: 'POST',
                     headers: headers(token),
                     body: JSON.stringify(label)
                 });
-                // 422 = label already exists, that's fine
+                // 422 = label already exists, ignore
             } catch { }
         }
     }
@@ -84,8 +83,9 @@ window.TaskManager = (() => {
     }
 
     async function getTasksByMilestone(repo, milestoneNumber, token) {
+        // Use state=all so DONE tasks (which may be closed) are also visible to reviewer
         const res = await fetch(
-            `https://api.github.com/repos/${repo}/issues?milestone=${milestoneNumber}&state=open&per_page=100`,
+            `https://api.github.com/repos/${repo}/issues?milestone=${milestoneNumber}&state=all&per_page=100`,
             { headers: headers(token) }
         );
         if (!res.ok) return [];
@@ -94,16 +94,23 @@ window.TaskManager = (() => {
     }
 
     async function updateTaskStatus(repo, issueNumber, statusLabel, token) {
-        const current = await fetch(`https://api.github.com/repos/${repo}/issues/${issueNumber}`, { headers: headers(token) });
+        const current = await fetch(
+            `https://api.github.com/repos/${repo}/issues/${issueNumber}`,
+            { headers: headers(token) }
+        );
         if (!current.ok) return;
         const issue = await current.json();
+
+        // Remove all existing task: labels
         const taskLabels = issue.labels.filter(l => l.name.startsWith('task:')).map(l => l.name);
         for (const label of taskLabels) {
-            await fetch(`https://api.github.com/repos/${repo}/issues/${issueNumber}/labels/${encodeURIComponent(label)}`, {
-                method: 'DELETE',
-                headers: headers(token)
-            });
+            await fetch(
+                `https://api.github.com/repos/${repo}/issues/${issueNumber}/labels/${encodeURIComponent(label)}`,
+                { method: 'DELETE', headers: headers(token) }
+            );
         }
+
+        // Add the new status label
         await fetch(`https://api.github.com/repos/${repo}/issues/${issueNumber}/labels`, {
             method: 'POST',
             headers: headers(token),
@@ -112,11 +119,14 @@ window.TaskManager = (() => {
     }
 
     async function addComment(repo, issueNumber, body, token) {
-        const res = await fetch(`https://api.github.com/repos/${repo}/issues/${issueNumber}/comments`, {
-            method: 'POST',
-            headers: headers(token),
-            body: JSON.stringify({ body })
-        });
+        const res = await fetch(
+            `https://api.github.com/repos/${repo}/issues/${issueNumber}/comments`,
+            {
+                method: 'POST',
+                headers: headers(token),
+                body: JSON.stringify({ body })
+            }
+        );
         if (!res.ok) throw new Error((await res.json()).message);
         return await res.json();
     }
