@@ -1,4 +1,15 @@
 window.ExecutorAgent = (() => {
+    // Robust skill block extractor — handles both <skill name="update_editor"> and
+    // <skill name="update_editor" file="...">, plus odd whitespace.
+    function extractUpdateEditor(text) {
+        if (typeof text !== 'string') return null;
+        // Match opening tag with optional file attribute, then capture until closing tag
+        const re = /<skill\s+name=["']update_editor["'](?:\s+file=["']([^"']+)["'])?\s*>([\s\S]*?)<\/skill>/i;
+        const m = text.match(re);
+        if (!m) return null;
+        return { file: m[1] || null, content: m[2].trim() };
+    }
+
     async function executeNextTask({
         tasks,
         repo, branch, githubToken,
@@ -11,17 +22,21 @@ window.ExecutorAgent = (() => {
         setActiveFilePath,
         setActiveTab,
     }) {
-        // Reset stuck IN_PROGRESS tasks
+        // Reset stuck IN_PROGRESS tasks back to TODO so we can pick them up
         const stuckTasks = tasks.filter(t =>
             t.labels.some(l => l.name === 'task:in_progress')
         );
         for (const stuck of stuckTasks) {
-            await window.TaskManager.updateTaskStatus(repo, stuck.number, 'TODO', githubToken);
-            stuck.labels = stuck.labels.filter(l => !l.name.startsWith('task:'));
-            stuck.labels.push({ name: 'task:todo' });
+            try {
+                await window.TaskManager.updateTaskStatus(repo, stuck.number, 'TODO', githubToken);
+                stuck.labels = stuck.labels.filter(l => !l.name.startsWith('task:'));
+                stuck.labels.push({ name: 'task:todo' });
+            } catch (e) {
+                console.warn(`Could not reset task #${stuck.number}:`, e.message);
+            }
         }
 
-        // Find unblocked TODO task
+        // Find first unblocked TODO task
         const todoTask = tasks.find(t => {
             const isTodo = t.labels.some(l => l.name === 'task:todo');
             const unblocked = window.TaskManager.isUnblocked(t, tasks);
@@ -30,7 +45,18 @@ window.ExecutorAgent = (() => {
 
         if (!todoTask) return null;
 
-        await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'IN_PROGRESS', githubToken);
+        // Mark as in-progress
+        try {
+            await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'IN_PROGRESS', githubToken);
+        } catch (e) {
+            addToast(`Could not mark task #${todoTask.number} as in-progress: ${e.message}`, 'error');
+            return {
+                failed: true,
+                taskNumber: todoTask.number,
+                title: todoTask.title,
+                reason: `Could not update task status: ${e.message}`
+            };
+        }
         addToast(`🔨 Starting: ${todoTask.title}`);
 
         // Parse task body
@@ -41,7 +67,17 @@ window.ExecutorAgent = (() => {
             : [];
         const description = body.replace(/\*\*Files:\*\*.*/, '').trim();
 
-        // Load file contents
+        if (targetFiles.length === 0) {
+            await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'TODO', githubToken);
+            return {
+                failed: true,
+                taskNumber: todoTask.number,
+                title: todoTask.title,
+                reason: 'Task has no target files specified'
+            };
+        }
+
+        // Load existing file contents (if they exist)
         const fileContents = {};
         for (const path of targetFiles.slice(0, 2)) {
             try {
@@ -49,32 +85,40 @@ window.ExecutorAgent = (() => {
                     repo, branch, path, githubToken
                 );
                 const lines = content.split('\n');
-                const truncated = lines.length > 150
-                    ? lines.slice(0, 150).join('\n') + '\n\n// ... (truncated)'
+                const truncated = lines.length > 200
+                    ? lines.slice(0, 200).join('\n') + '\n\n// ... (truncated for context)'
                     : content;
-                fileContents[path] = { content, sha, preview: truncated };
+                fileContents[path] = { content, sha, preview: truncated, exists: true };
             } catch (e) {
-                fileContents[path] = { content: '', sha: null, preview: '' };
+                // File doesn't exist yet — that's OK, we'll create it
+                fileContents[path] = { content: '', sha: null, preview: '(new file)', exists: false };
             }
         }
 
         // Build system prompt
-        let sysPrompt = `You are a coding assistant. Implement this task concisely.
+        let sysPrompt = `You are a coding assistant. Implement this task by producing the FULL updated file content.
 
 Repo: ${repo} | Branch: ${branch}
 Task: ${todoTask.title}
 Instructions: ${description}
-Files: ${targetFiles.join(', ')}
+Target files: ${targetFiles.join(', ')}
 
 Current file contents:
-${Object.entries(fileContents).map(([p, { preview }]) => `--- ${p} ---\n${preview}`).join('\n\n')}
+${Object.entries(fileContents).map(([p, { preview, exists }]) =>
+    `--- ${p} ${exists ? '' : '(does not exist yet)'} ---\n${preview}`
+).join('\n\n')}
 
-Respond with ONLY the updated file content wrapped in:
-<skill name="update_editor" file="path/to/file">FULL FILE CONTENT</skill>
+CRITICAL OUTPUT FORMAT — your reply must contain exactly one skill block:
 
-- Output the complete file, not just the diff.
-- If creating a new file, output its full content.
-- No explanation, no commentary — just the skill block.`;
+<skill name="update_editor" file="path/to/file">
+FULL FILE CONTENT HERE
+</skill>
+
+Rules:
+- Output the COMPLETE file, not a diff or snippet.
+- The "file" attribute is REQUIRED. Pick one of the target files above.
+- No prose before or after the skill block.
+- If you cannot complete the task, output: <skill name="update_editor" file="${targetFiles[0]}">FAILED: <reason></skill>`;
 
         if (systemPromptOverride && systemPromptOverride.trim()) {
             sysPrompt = systemPromptOverride + '\n\n' + sysPrompt;
@@ -95,60 +139,111 @@ Respond with ONLY the updated file content wrapped in:
 
         const userContent = `Implement: ${todoTask.title}`;
 
-        const reply = await window.LLMProvider.chatCompletion({
-            provider,
-            model,
-            messages: [{ role: 'user', content: 'Implement this.' }],
-            systemPrompt: sysPrompt,
-            userContent,
-            thinkingMode: false,
-            reasoningEffort,
-        });
-
-        const { modifiedReply, actions } = window.processAgentSkills(reply.content);
-        addToast(`AI execution done for ${todoTask.title}`, 'info');
-
-        let committed = false;
-
-        if (actions.updateEditorContent) {
-            let filePath = targetFiles[0];
-            const fileAttrMatch = reply.content.match(/<skill name="update_editor" file="([^"]+)"[^>]*>/i);
-            if (fileAttrMatch) filePath = fileAttrMatch[1];
-
-            const oldSha = fileContents[filePath]?.sha || null;
-
-            try {
-                await window.GitHubService.commitFile(
-                    repo, branch, filePath,
-                    actions.updateEditorContent,
-                    oldSha,
-                    `Implement: ${todoTask.title}`,
-                    githubToken
-                );
-                committed = true;
-
-                if (setActiveFileContent && setActiveFilePath) {
-                    setActiveFilePath(filePath);
-                    setActiveFileContent(actions.updateEditorContent);
-                    if (setActiveTab) setActiveTab('editor');
-                }
-            } catch (err) {
-                addToast(`Commit failed for ${filePath}: ${err.message}`, 'error');
-                // Leave task as IN_PROGRESS so it can be retried
-                await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'TODO', githubToken);
-                return null;
-            }
-        }
-
-        if (!committed) {
-            addToast(`Warning: No code changes produced for ${todoTask.title}. Task remains TODO.`, 'warning');
+        let reply;
+        try {
+            reply = await window.LLMProvider.chatCompletion({
+                provider,
+                model,
+                messages: [{ role: 'user', content: 'Implement this.' }],
+                systemPrompt: sysPrompt,
+                userContent,
+                thinkingMode: false,
+                reasoningEffort,
+            });
+        } catch (e) {
             await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'TODO', githubToken);
-            return null;
+            return {
+                failed: true,
+                taskNumber: todoTask.number,
+                title: todoTask.title,
+                reason: `LLM call failed: ${e.message}`
+            };
         }
 
-        await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'DONE', githubToken);
-        return { ...todoTask, issueNumber: todoTask.number };
+        // Parse skill block
+        const extracted = extractUpdateEditor(reply.content || '');
+        if (!extracted) {
+            await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'TODO', githubToken);
+            await window.TaskManager.addComment(
+                repo, todoTask.number,
+                `🤖 Execution attempt produced no valid \`update_editor\` skill block. Raw output (first 500 chars):\n\n\`\`\`\n${(reply.content || '').slice(0, 500)}\n\`\`\``,
+                githubToken
+            ).catch(() => {});
+            return {
+                failed: true,
+                taskNumber: todoTask.number,
+                title: todoTask.title,
+                reason: 'LLM did not produce a valid skill block'
+            };
+        }
+
+        // Detect explicit failure flag from the model
+        if (/^FAILED:/i.test(extracted.content)) {
+            await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'TODO', githubToken);
+            return {
+                failed: true,
+                taskNumber: todoTask.number,
+                title: todoTask.title,
+                reason: extracted.content.slice(0, 200)
+            };
+        }
+
+        // Determine target file path
+        let filePath = extracted.file || targetFiles[0];
+        if (!filePath) {
+            await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'TODO', githubToken);
+            return {
+                failed: true,
+                taskNumber: todoTask.number,
+                title: todoTask.title,
+                reason: 'No file path determinable'
+            };
+        }
+
+        const oldSha = fileContents[filePath]?.sha || null;
+
+        // Commit
+        try {
+            await window.GitHubService.commitFile(
+                repo, branch, filePath,
+                extracted.content,
+                oldSha,
+                `Implement: ${todoTask.title} (#${todoTask.number})`,
+                githubToken
+            );
+        } catch (err) {
+            addToast(`Commit failed for ${filePath}: ${err.message}`, 'error');
+            await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'TODO', githubToken);
+            return {
+                failed: true,
+                taskNumber: todoTask.number,
+                title: todoTask.title,
+                reason: `Commit failed: ${err.message}`
+            };
+        }
+
+        // Update editor view if available
+        if (setActiveFileContent && setActiveFilePath) {
+            setActiveFilePath(filePath);
+            setActiveFileContent(extracted.content);
+            if (setActiveTab) setActiveTab('editor');
+        }
+
+        // Mark done
+        try {
+            await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'DONE', githubToken);
+        } catch (e) {
+            addToast(`Could not mark task #${todoTask.number} as done: ${e.message}`, 'warning');
+            // Code is committed though, so this is a soft failure
+        }
+
+        return {
+            failed: false,
+            ...todoTask,
+            issueNumber: todoTask.number,
+            filePath
+        };
     }
 
-    return { executeNextTask };
+    return { executeNextTask, extractUpdateEditor };
 })();
