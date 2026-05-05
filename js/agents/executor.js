@@ -18,7 +18,7 @@ window.ExecutorAgent = (() => {
       return isTodo && unblocked;
     });
 
-    if (!todoTask) return null; // no tasks left
+    if (!todoTask) return null;
 
     await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'IN_PROGRESS', githubToken);
     addToast(`🔨 Starting: ${todoTask.title}`);
@@ -29,14 +29,15 @@ window.ExecutorAgent = (() => {
     const targetFiles = fileMatch ? fileMatch[1].split(',').map(f => f.trim()) : [];
     const description = body.replace(/\*\*Files:\*\*.*/, '').trim();
 
-    // Load the contents of the target files
+    // Load the contents of the target files (gracefully handle new files)
     const fileContents = {};
     for (const path of targetFiles) {
       try {
         const { content, sha } = await window.GitHubService.loadFileContent(repo, branch, path, githubToken);
         fileContents[path] = { content, sha };
       } catch (e) {
-        addToast(`Could not load ${path}`, 'warning');
+        // File doesn't exist yet — executor will create it
+        fileContents[path] = { content: '', sha: null };
       }
     }
 
@@ -96,22 +97,22 @@ Instructions:
 
     // Apply each file update
     if (actions.updateEditorContent) {
-      // If only one file is returned without explicit "file" attribute, assume it's the first target file
       let filePath = targetFiles[0];
-      // Try to extract file attribute from the original reply
-      const fileMatch = reply.content.match(/<skill name="update_editor" file="([^"]+)"[^>]*>/i);
-      if (fileMatch) filePath = fileMatch[1];
 
-      if (fileContents[filePath]) {
-        const oldSha = fileContents[filePath].sha;
-        await window.GitHubService.commitFile(repo, branch, filePath, actions.updateEditorContent, oldSha, `Implement: ${todoTask.title}`, githubToken);
-      } else {
-        // File doesn't exist, we might need to create it. Use the create-or-update approach.
-        // For simplicity we'll just use a PUT with no SHA (will fail if file exists) – better to use GitHub's create content.
-        // For now, we'll try creating with sha null.
-        await window.GitHubService.commitFile(repo, branch, filePath, actions.updateEditorContent, null, `Create ${filePath}: ${todoTask.title}`, githubToken);
-      }
-      // Update active editor if provided
+      // Try to extract explicit file attribute from the original reply
+      const fileAttrMatch = reply.content.match(/<skill name="update_editor" file="([^"]+)"[^>]*>/i);
+      if (fileAttrMatch) filePath = fileAttrMatch[1];
+
+      const oldSha = fileContents[filePath]?.sha || null;
+
+      await window.GitHubService.commitFile(
+        repo, branch, filePath,
+        actions.updateEditorContent,
+        oldSha,
+        `Implement: ${todoTask.title}`,
+        githubToken
+      );
+
       if (setActiveFileContent && setActiveFilePath) {
         setActiveFilePath(filePath);
         setActiveFileContent(actions.updateEditorContent);
@@ -119,10 +120,8 @@ Instructions:
       }
     }
 
-    // For multiple files, the AI might have returned multiple skill blocks; our current processAgentSkills only handles one.
-    // For simplicity, we'll assume one file change per task (as per planner's rules). If multiple, the executor would need to parse each block.
-
-    return todoTask;
+    // Return with issueNumber explicitly set so orchestrator can reference it
+    return { ...todoTask, issueNumber: todoTask.number };
   }
 
   return { executeNextTask };
