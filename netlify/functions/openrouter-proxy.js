@@ -1,4 +1,3 @@
-// netlify/functions/openrouter-proxy.js
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
@@ -10,8 +9,9 @@ exports.handler = async (event) => {
   }
 
   try {
-    let requestBody = JSON.parse(event.body);
-    const isStreaming = requestBody.stream === true;
+    const requestBody = JSON.parse(event.body);
+    // Force stream: false for compatibility
+    requestBody.stream = false;
 
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -24,31 +24,13 @@ exports.handler = async (event) => {
       body: JSON.stringify(requestBody),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      return {
-        statusCode: response.status,
-        body: JSON.stringify({ error: errorText }),
-      };
-    }
+    const data = await response.json();
 
-    if (isStreaming) {
-      // Stream the response body directly to the client
-      return new Response(response.body, {
-        status: 200,
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-        },
-      });
-    } else {
-      const data = await response.json();
-      return {
-        statusCode: 200,
-        body: JSON.stringify(data),
-      };
-    }
+    return {
+      statusCode: response.status,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    };
   } catch (error) {
     return {
       statusCode: 500,
