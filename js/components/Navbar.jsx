@@ -9,23 +9,20 @@ window.Navbar = ({
   isLoading,
   rememberKeys, setRememberKeys,
   activeTab, setActiveTab,
-  models,           // <-- new: list from ModelRegistry
-  modelsLoading,    // <-- new: boolean
+  models, modelsLoading,
+  systemPromptOverride, setSystemPromptOverride   // new
 }) => {
   const [showSettings, setShowSettings] = React.useState(false);
-  const [freeOnly, setFreeOnly] = React.useState(false); // <-- new: filter state
+  const [freeOnly, setFreeOnly] = React.useState(false);
 
-  // Heuristic to determine if a model is free
   const isFreeModel = (model) => {
-    if (model.free) return true; // trust explicit flag if present
+    if (model.free) return true;
     const id = model.value.toLowerCase();
     const label = model.label.toLowerCase();
     return id.includes(':free') || label.includes('(free)') || label.includes('free');
   };
 
-  const filteredModels = freeOnly
-    ? models.filter(isFreeModel)
-    : models;
+  const filteredModels = freeOnly ? models.filter(isFreeModel) : models;
 
   const tabs = [
     { id: 'chat', label: '💬', title: 'Chat' },
@@ -87,7 +84,7 @@ window.Navbar = ({
         className: 'px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg border border-zinc-700 transition disabled:opacity-40 text-xs font-bold'
       }, isLoading ? '⟳' : 'Fetch'),
 
-      // Model select with free-only toggle
+      // Model select
       React.createElement('div', { className: 'hidden md:flex items-center gap-2' },
         React.createElement('select', {
           value: selectedModel,
@@ -136,7 +133,7 @@ window.Navbar = ({
       }, '⚙️')
     ),
 
-    // Settings drawer (collapsible)
+    // Settings drawer
     showSettings && React.createElement('div', {
       className: 'border-t border-zinc-800 px-4 py-3 flex flex-wrap items-center gap-3 text-xs bg-zinc-950/50'
     },
@@ -162,6 +159,18 @@ window.Navbar = ({
           className: 'accent-amber-500'
         }),
         React.createElement('span', null, 'Remember keys')
+      ),
+
+      // System prompt override
+      React.createElement('div', { className: 'w-full' },
+        React.createElement('label', { className: 'block text-zinc-500 text-xs mb-1' }, 'Custom instructions'),
+        React.createElement('textarea', {
+          placeholder: 'e.g. "Always respond in bullet points, be concise, never use jokes."',
+          value: systemPromptOverride,
+          onChange: e => setSystemPromptOverride(e.target.value),
+          className: 'p-2 rounded-lg bg-zinc-800 border border-zinc-700 w-64 focus:border-amber-500 outline-none text-zinc-300 text-xs h-16 resize-none',
+          rows: 3
+        })
       ),
 
       // Mobile tab buttons
