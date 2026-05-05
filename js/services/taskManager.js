@@ -13,7 +13,19 @@ window.TaskManager = (() => {
             headers: headers(token),
             body: JSON.stringify({ title, description, state: 'open' })
         });
-        if (!res.ok) throw new Error((await res.json()).message);
+        if (!res.ok) {
+            // 422 = milestone with this title already exists, find and return it
+            if (res.status === 422) {
+                const existing = await fetch(
+                    `https://api.github.com/repos/${repo}/milestones?state=open&per_page=100`,
+                    { headers: headers(token) }
+                );
+                const list = await existing.json();
+                const found = list.find(m => m.title === title);
+                if (found) return found;
+            }
+            throw new Error((await res.json()).message);
+        }
         return await res.json();
     }
 
@@ -32,22 +44,23 @@ window.TaskManager = (() => {
     }
 
     const LABELS = {
-        TODO:       { name: 'task:todo',       color: '3f3f46', description: 'Not yet started' },
-        IN_PROGRESS:{ name: 'task:in_progress',color: 'ea580c', description: 'Currently working on' },
-        DONE:       { name: 'task:done',       color: '16a34a', description: 'Completed' },
-        REVIEW:     { name: 'task:review',     color: 'ca8a04', description: 'Needs review' },
-        BLOCKED:    { name: 'task:blocked',    color: 'dc2626', description: 'Blocked by another task' },
-        BUG:        { name: 'task:bug',        color: '7c3aed', description: 'Bug found during review' },
+        TODO:        { name: 'task:todo',        color: '3f3f46', description: 'Not yet started' },
+        IN_PROGRESS: { name: 'task:in_progress', color: 'ea580c', description: 'Currently working on' },
+        DONE:        { name: 'task:done',        color: '16a34a', description: 'Completed' },
+        REVIEW:      { name: 'task:review',      color: 'ca8a04', description: 'Needs review' },
+        BLOCKED:     { name: 'task:blocked',     color: 'dc2626', description: 'Blocked by another task' },
+        BUG:         { name: 'task:bug',         color: '7c3aed', description: 'Bug found during review' },
     };
 
     async function ensureLabels(repo, token) {
         for (const [key, label] of Object.entries(LABELS)) {
             try {
-                await fetch(`https://api.github.com/repos/${repo}/labels`, {
+                const res = await fetch(`https://api.github.com/repos/${repo}/labels`, {
                     method: 'POST',
                     headers: headers(token),
                     body: JSON.stringify(label)
                 });
+                // 422 = label already exists, that's fine
             } catch { }
         }
     }
