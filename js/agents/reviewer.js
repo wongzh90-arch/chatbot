@@ -25,13 +25,44 @@ window.ReviewerAgent = (() => {
         for (const task of doneTasks) {
             await window.TaskManager.updateTaskStatus(repo, task.number, 'REVIEW', githubToken);
 
+            // ── NEW: load the actual files changed by this task ──
+            const body = task.body || '';
+            const fileMatch = body.match(/\*\*Files:\*\*\s*(.*)/);
+            const targetFiles = fileMatch
+                ? fileMatch[1].split(',').map(f => f.trim()).filter(Boolean)
+                : [];
+
+            const fileContents = {};
+            for (const path of targetFiles.slice(0, 2)) {  // limit to 2 files for token economy
+                try {
+                    const { content } = await window.GitHubService.loadFileContent(
+                        repo, branch, path, githubToken
+                    );
+                    // Truncate large files — send only first 150 lines
+                    const lines = content.split('\n');
+                    const truncated = lines.length > 150
+                        ? lines.slice(0, 150).join('\n') + '\n\n// ... (truncated for brevity)'
+                        : content;
+                    fileContents[path] = truncated;
+                } catch (e) {
+                    // file doesn't exist – probably an older task or mis-specified file
+                    fileContents[path] = '[File not found or inaccessible]';
+                }
+            }
+
+            // ── Build the system prompt, now including the actual code ──
             let sysPrompt = `You are a code reviewer. Review the following completed task for quality.
 
 Task: ${task.title}
-Task details: ${task.body || ''}
+Task details: ${body}
 
 Repository: ${repo}
 File tree: ${fileTree.map(f => f.path).join(', ')}
+
+Files changed (content after the task was executed):
+${Object.entries(fileContents)
+    .map(([p, content]) => `--- ${p} ---\n${content}`)
+    .join('\n\n')}
 
 Check for:
 1. Logic errors or bugs
