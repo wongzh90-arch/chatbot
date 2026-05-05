@@ -120,6 +120,11 @@ function App() {
     const saved = localStorage.getItem(`LOCAL_MSGS_${activeConversationId}`);
     if (saved) setMessages(JSON.parse(saved));
     else setMessages([{ role: 'assistant', content: 'New chat. Type `/help` for commands.' }]);
+    // Trigger summary generation if none exists (optional)
+    const existingSummary = window.SummaryService.getSummary(activeConversationId);
+    if (!existingSummary && messages.length > 0) {
+      window.SummaryService.maybeSummarise(activeConversationId, messages, 'manual');
+    }
   }, [activeConversationId]);
   useEffect(() => {
     localStorage.setItem(`LOCAL_MSGS_${activeConversationId}`, JSON.stringify(messages));
@@ -136,6 +141,7 @@ function App() {
   };
   const deleteConversation = (id) => {
     localStorage.removeItem(`LOCAL_MSGS_${id}`);
+    window.SummaryService.deleteSummary(id);
     setConversations(prev => {
       const rest = prev.filter(c => c.id !== id);
       if (activeConversationId === id) {
@@ -281,31 +287,41 @@ function App() {
           { role: 'user', content: userText },
           { role: 'assistant', content: `**Available Commands:**\n${window.COMMANDS.map(c => `\`${c.cmd}\` — ${c.desc}`).join('\n')}\n\n💡 You can also describe intent naturally: *"search for X"*, *"commit this"*, *"create branch feature/x"*.` }
         ]);
+        await window.SummaryService.maybeSummarise(activeConversationId, [...messages, { role: 'user', content: userText }], 'command');
         return true;
       case '/clear':
         setMessages([{ role: 'assistant', content: 'Chat cleared.' }]);
+        await window.SummaryService.maybeSummarise(activeConversationId, [{ role: 'assistant', content: 'Chat cleared.' }], 'command');
         return true;
       case '/fetch':
         fetchFileTree();
         setMessages(prev => [...prev, { role: 'user', content: userText }]);
+        await window.SummaryService.maybeSummarise(activeConversationId, [...messages, { role: 'user', content: userText }], 'command');
         return true;
       case '/commit':
         commitChange(args || null);
         setMessages(prev => [...prev, { role: 'user', content: userText }]);
+        await window.SummaryService.maybeSummarise(activeConversationId, [...messages, { role: 'user', content: userText }], 'command');
         return true;
       case '/learn':
         if (!args) { addToast('Provide rule', 'error'); return true; }
         addMemoryRule(args);
-        setMessages(prev => [...prev, { role: 'user', content: userText }, { role: 'assistant', content: `🧠 Learned: ${args}` }]);
+        const newMessagesLearn = [...messages, { role: 'user', content: userText }, { role: 'assistant', content: `🧠 Learned: ${args}` }];
+        setMessages(newMessagesLearn);
+        await window.SummaryService.maybeSummarise(activeConversationId, newMessagesLearn, 'command');
         return true;
       case '/forget':
         clearMemory();
-        setMessages(prev => [...prev, { role: 'user', content: userText }, { role: 'assistant', content: 'Memory cleared.' }]);
+        const newMessagesForget = [...messages, { role: 'user', content: userText }, { role: 'assistant', content: 'Memory cleared.' }];
+        setMessages(newMessagesForget);
+        await window.SummaryService.maybeSummarise(activeConversationId, newMessagesForget, 'command');
         return true;
       case '/branch': {
         if (!args) { addToast('Specify branch name', 'error'); return true; }
         const success = await handleCreateBranch(args);
-        setMessages(prev => [...prev, { role: 'user', content: userText }, { role: 'assistant', content: success ? `✅ Branch **${args}** created.` : `❌ Failed` }]);
+        const newMessagesBranch = [...messages, { role: 'user', content: userText }, { role: 'assistant', content: success ? `✅ Branch **${args}** created.` : `❌ Failed` }];
+        setMessages(newMessagesBranch);
+        await window.SummaryService.maybeSummarise(activeConversationId, newMessagesBranch, 'command');
         return true;
       }
       case '/pr': {
@@ -314,13 +330,17 @@ function App() {
         const base = parts[1] || null;
         if (!title) { addToast('Provide PR title', 'error'); return true; }
         const url = await handleCreatePR(title, base);
-        setMessages(prev => [...prev, { role: 'user', content: userText }, { role: 'assistant', content: url ? `🔀 PR opened: ${url}` : '❌ PR failed' }]);
+        const newMessagesPR = [...messages, { role: 'user', content: userText }, { role: 'assistant', content: url ? `🔀 PR opened: ${url}` : '❌ PR failed' }];
+        setMessages(newMessagesPR);
+        await window.SummaryService.maybeSummarise(activeConversationId, newMessagesPR, 'command');
         return true;
       }
       case '/switch': {
         if (!args) { addToast('Specify branch', 'error'); return true; }
         await handleSwitchBranch(args);
-        setMessages(prev => [...prev, { role: 'user', content: userText }, { role: 'assistant', content: `🌿 Switched to **${args}**.` }]);
+        const newMessagesSwitch = [...messages, { role: 'user', content: userText }, { role: 'assistant', content: `🌿 Switched to **${args}**.` }];
+        setMessages(newMessagesSwitch);
+        await window.SummaryService.maybeSummarise(activeConversationId, newMessagesSwitch, 'command');
         return true;
       }
       case '/search': {
@@ -357,55 +377,74 @@ function App() {
           setMessages(prev => [...prev, { role: 'assistant', content: `❌ Search failed: ${e.message}` }]);
         } finally {
           setIsLoading(false);
+          await window.SummaryService.maybeSummarise(activeConversationId, messages, 'command');
         }
         return true;
       }
       case '/plan': {
         if (!args) { addToast('Provide a goal.', 'error'); return true; }
         await window.Orchestrator.runPlanPhase({ goal: args, repo: currentRepo, branch: currentBranch, githubToken, provider, model: selectedModel, thinkingMode, reasoningEffort, fileTree, addToast, setMessages, projectMemory, userMemory, systemPromptOverride });
-        refreshTasks(); return true;
+        refreshTasks();
+        await window.SummaryService.maybeSummarise(activeConversationId, messages, 'command');
+        return true;
       }
       case '/execute': {
         await window.Orchestrator.runExecutePhase({ repo: currentRepo, branch: currentBranch, githubToken, provider, model: selectedModel, thinkingMode, reasoningEffort, projectMemory, userMemory, systemPromptOverride, addToast, setMessages, setActiveFileContent, setActiveFilePath, setActiveTab });
-        refreshTasks(); return true;
+        refreshTasks();
+        await window.SummaryService.maybeSummarise(activeConversationId, messages, 'command');
+        return true;
       }
       case '/review': {
         await window.Orchestrator.runReviewPhase({ repo: currentRepo, branch: currentBranch, githubToken, provider, model: selectedModel, thinkingMode, reasoningEffort, fileTree, addToast, setMessages, projectMemory, userMemory, systemPromptOverride });
-        refreshTasks(); return true;
+        refreshTasks();
+        await window.SummaryService.maybeSummarise(activeConversationId, messages, 'command');
+        return true;
       }
       case '/autopilot':
         window.Orchestrator.setMode('autopilot');
-        setMessages(prev => [...prev, { role: 'user', content: userText }, { role: 'assistant', content: '🤖 **Autopilot enabled.** Running plan → execute → review loop. Use `/manual` to stop.' }]);
+        const newMessagesAuto = [...messages, { role: 'user', content: userText }, { role: 'assistant', content: '🤖 **Autopilot enabled.** Running plan → execute → review loop. Use `/manual` to stop.' }];
+        setMessages(newMessagesAuto);
+        await window.SummaryService.maybeSummarise(activeConversationId, newMessagesAuto, 'command');
         return true;
       case '/manual':
         window.Orchestrator.setMode('manual');
-        setMessages(prev => [...prev, { role: 'user', content: userText }, { role: 'assistant', content: '🖐 **Manual mode.** Confirming at each step.' }]);
+        const newMessagesManual = [...messages, { role: 'user', content: userText }, { role: 'assistant', content: '🖐 **Manual mode.** Confirming at each step.' }];
+        setMessages(newMessagesManual);
+        await window.SummaryService.maybeSummarise(activeConversationId, newMessagesManual, 'command');
         return true;
       case '/tasks': {
         await refreshTasks();
         const oState = window.Orchestrator.getState();
-        setMessages(prev => [...prev, { role: 'user', content: userText }, {
+        const newMessagesTasks = [...messages, { role: 'user', content: userText }, {
           role: 'assistant',
           content: orchestratorTasks.length === 0 ? 'No active tasks. Use `/plan <goal>` first.' : `📋 **Tasks** (${oState.milestone?.title || 'N/A'})\nOpening Task Board…`
-        }]);
+        }];
+        setMessages(newMessagesTasks);
         setActiveTab('tasks');
+        await window.SummaryService.maybeSummarise(activeConversationId, newMessagesTasks, 'command');
         return true;
       }
       case '/remember':
         if (!args) { addToast('Provide a preference to remember', 'error'); return true; }
         setUserMemory(prev => [...prev, args]);
-        setMessages(prev => [...prev, { role: 'user', content: userText }, { role: 'assistant', content: `🧠 I'll remember: *${args}*` }]);
+        const newMessagesRemember = [...messages, { role: 'user', content: userText }, { role: 'assistant', content: `🧠 I'll remember: *${args}*` }];
+        setMessages(newMessagesRemember);
+        await window.SummaryService.maybeSummarise(activeConversationId, newMessagesRemember, 'command');
         return true;
       case '/forgetme':
         setUserMemory([]);
-        setMessages(prev => [...prev, { role: 'user', content: userText }, { role: 'assistant', content: 'All personal preferences cleared.' }]);
+        const newMessagesForgetMe = [...messages, { role: 'user', content: userText }, { role: 'assistant', content: 'All personal preferences cleared.' }];
+        setMessages(newMessagesForgetMe);
+        await window.SummaryService.maybeSummarise(activeConversationId, newMessagesForgetMe, 'command');
         return true;
       case '/myprefs':
-        setMessages(prev => [...prev, { role: 'user', content: userText }, {
+        const newMessagesPrefs = [...messages, { role: 'user', content: userText }, {
           role: 'assistant', content: userMemory.length === 0
             ? 'No personal preferences saved yet.'
             : `🧠 **Your preferences:**\n${userMemory.map((p, i) => `${i+1}. ${p}`).join('\n')}`
-        }]);
+        }];
+        setMessages(newMessagesPrefs);
+        await window.SummaryService.maybeSummarise(activeConversationId, newMessagesPrefs, 'command');
         return true;
       default: return false;
     }
@@ -433,6 +472,8 @@ function App() {
 
     const newMessages = [...messages, { role: 'user', content: userText }];
     setMessages(newMessages);
+    // Trigger auto summary after user message
+    await window.SummaryService.maybeSummarise(activeConversationId, newMessages, 'auto');
     setIsLoading(true);
     setStreamingMessage('');
     setStreamingReasoning(null);
@@ -468,7 +509,7 @@ function App() {
         thinkingMode,
         reasoningEffort,
         onToken: (_, accumulated) => setStreamingMessage(accumulated),
-        onDone: (fullContent, usedModel, reasoning) => {
+        onDone: async (fullContent, usedModel, reasoning) => {
           try {
             const { modifiedReply, actions } = window.processAgentSkills(fullContent || '');
             if (actions.updateEditorContent) {
@@ -476,11 +517,16 @@ function App() {
               addToast('Agent updated editor', 'success');
               setActiveTab('editor');
             }
-            setMessages(prev => [...prev, { role: 'assistant', content: modifiedReply, model: usedModel, reasoning_content: reasoning }]);
+            const finalMessages = [...newMessages, { role: 'assistant', content: modifiedReply, model: usedModel, reasoning_content: reasoning }];
+            setMessages(finalMessages);
+            // Trigger auto summary after assistant response
+            await window.SummaryService.maybeSummarise(activeConversationId, finalMessages, 'auto');
           } catch (err) {
             console.error('processAgentSkills error:', err);
             addToast('Error processing response, showing raw output.', 'error');
-            setMessages(prev => [...prev, { role: 'assistant', content: fullContent || '(no content)', model: usedModel }]);
+            const errorMessages = [...newMessages, { role: 'assistant', content: fullContent || '(no content)', model: usedModel }];
+            setMessages(errorMessages);
+            await window.SummaryService.maybeSummarise(activeConversationId, errorMessages, 'auto');
           } finally {
             setStreamingMessage('');
             setStreamingReasoning(null);
@@ -596,6 +642,7 @@ function App() {
           onCmdHintClick: cmd => { setInputPrompt(cmd + ' '); if (inputRef.current) inputRef.current.focus(); },
           chatScrollRef, inputRef,
           streamingMessage, streamingReasoning,
+          conversationId: activeConversationId,
         })
       )
     )
