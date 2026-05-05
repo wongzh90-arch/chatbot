@@ -10,14 +10,12 @@ window.ChatPane = ({
   const [intentSuggestion, setIntentSuggestion] = useState(null);
   const textareaRef = useRef(null);
 
-  // Intent detection while typing
   useEffect(() => {
     if (!inputPrompt || inputPrompt.startsWith('/')) { setIntentSuggestion(null); return; }
     const suggestion = window.IntentDetector && window.IntentDetector.suggest(inputPrompt);
     setIntentSuggestion(suggestion || null);
   }, [inputPrompt]);
 
-  // Auto-resize textarea
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -57,7 +55,7 @@ window.ChatPane = ({
       )
     ),
 
-    // Messages – scrollable, no bottom padding that hides input
+    // Messages
     React.createElement('div', {
       ref: chatScrollRef,
       className: 'flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 custom-scrollbar'
@@ -77,7 +75,7 @@ window.ChatPane = ({
       )
     ),
 
-    // ── Input area – always visible (not absolute) ──
+    // Input area
     React.createElement('div', { className: 'border-t border-zinc-900 bg-zinc-950/95 backdrop-blur flex-shrink-0' },
 
       // Command hints
@@ -166,7 +164,7 @@ window.ChatPane = ({
   );
 };
 
-// ─── Message Bubble (unchanged) ───────────────────────────────────────────
+// ─── Message Bubble ───────────────────────────────────────────
 function MessageBubble({ message: m }) {
   const isUser = m.role === 'user';
   const isSearchResult = !isUser && m.searchResults && m.searchResults.length > 0;
@@ -204,69 +202,37 @@ function MessageBubble({ message: m }) {
   );
 }
 
-// ─── Rich Search Results (unchanged) ──────────────────────────────────────
+// ─── Compact Search Results ──────────────────────────────────
 function SearchResultsBlock({ results, query, synthesis }) {
-  const [expanded, setExpanded] = React.useState(null);
-
   return React.createElement('div', { className: 'space-y-2' },
 
-    // Header
-    React.createElement('div', { className: 'flex items-center gap-2 mb-3 pb-2 border-b border-zinc-800' },
-      React.createElement('span', { className: 'text-amber-400' }, '🔍'),
-      React.createElement('span', { className: 'font-semibold text-zinc-300 text-sm flex-1' }, `"${query}"`),
-      React.createElement('span', { className: 'text-[10px] text-zinc-600' }, `${results.length} results`)
-    ),
-
-    // AI synthesis
+    // AI synthesis first, no label
     synthesis && React.createElement('div', {
-      className: 'bg-amber-500/8 border border-amber-500/20 rounded-xl px-3 py-2.5 mb-3'
+      className: 'bg-amber-500/8 border border-amber-500/20 rounded-xl px-3 py-2.5 mb-2'
     },
-      React.createElement('div', { className: 'flex items-center gap-1.5 mb-1.5' },
-        React.createElement('span', { className: 'text-[10px] font-bold uppercase tracking-wider text-amber-400' }, '✦ AI Summary')
-      ),
-      React.createElement('div', { className: 'text-xs text-zinc-300 leading-relaxed' },
+      React.createElement('div', { className: 'text-sm text-zinc-300 leading-relaxed font-medium' },
         window.safeMarkdownToReact(synthesis)
       )
     ),
 
-    // Result cards
-    results.map((r, i) =>
-      React.createElement('div', {
-        key: i,
-        className: 'bg-zinc-800/50 border border-zinc-700/50 rounded-xl overflow-hidden hover:border-zinc-600 transition cursor-pointer',
-        onClick: () => setExpanded(expanded === i ? null : i)
-      },
-        React.createElement('div', { className: 'p-3' },
-          React.createElement('div', { className: 'flex items-start gap-2.5' },
-
-            // Number badge
-            React.createElement('div', {
-              className: 'w-5 h-5 rounded-md bg-zinc-700 flex items-center justify-center text-[10px] font-bold text-zinc-400 shrink-0 mt-0.5'
-            }, i + 1),
-
-            React.createElement('div', { className: 'flex-1 min-w-0' },
-              React.createElement('a', {
-                href: r.url, target: '_blank', rel: 'noopener noreferrer',
-                onClick: e => e.stopPropagation(),
-                className: 'font-medium text-zinc-200 text-xs sm:text-sm hover:text-amber-400 transition block leading-snug mb-1'
-              }, r.title),
-              React.createElement('div', { className: 'flex items-center gap-2' },
-                React.createElement('span', { className: 'text-[10px] text-zinc-500 font-mono truncate' },
-                  window.WebSearchService.extractDomain(r.url)
-                ),
-                r.datePublished && React.createElement('span', { className: 'text-[10px] text-zinc-700 shrink-0' },
-                  '· ' + new Date(r.datePublished).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-                )
-              )
-            ),
-
-            React.createElement('span', { className: 'text-zinc-700 text-xs shrink-0' }, expanded === i ? '▲' : '▼')
+    // Compact result rows
+    React.createElement('div', { className: 'space-y-1.5' },
+      results.map((r, i) =>
+        React.createElement('a', {
+          key: i,
+          href: r.url,
+          target: '_blank',
+          rel: 'noopener noreferrer',
+          className: 'flex items-center gap-2 px-2 py-1.5 text-xs bg-zinc-800/30 hover:bg-zinc-700/40 rounded-lg transition block'
+        },
+          React.createElement('span', { className: 'text-zinc-500 font-mono text-[10px] shrink-0' }, i + 1),
+          React.createElement('span', { className: 'text-zinc-300 truncate flex-1 font-medium' }, r.title),
+          React.createElement('span', { className: 'text-zinc-600 text-[10px] truncate hidden sm:inline' },
+            window.WebSearchService.extractDomain(r.url)
           ),
-
-          // Expanded snippet
-          expanded === i && r.snippet && React.createElement('div', {
-            className: 'mt-2.5 pt-2.5 border-t border-zinc-700/50 text-xs text-zinc-400 leading-relaxed'
-          }, r.snippet)
+          r.datePublished && React.createElement('span', { className: 'text-zinc-700 text-[10px] ml-auto hidden sm:inline' },
+            new Date(r.datePublished).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+          )
         )
       )
     )
