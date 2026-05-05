@@ -2,7 +2,7 @@ window.ExecutorAgent = (() => {
     async function executeNextTask({
         tasks,
         repo, branch, githubToken,
-        openRouterKey, model,
+        provider, model, thinkingMode, reasoningEffort,
         projectMemory,
         userMemory,
         systemPromptOverride,
@@ -45,12 +45,10 @@ Instructions:
 3. The code must be COMPLETE — no placeholders or truncation.
 4. After updating the editor, explain what you changed and why.`;
 
-        // Override
         if (systemPromptOverride && systemPromptOverride.trim()) {
             sysPrompt = systemPromptOverride + '\n\n' + sysPrompt;
         }
 
-        // User memory
         if (userMemory && userMemory.length) {
             const context = unblockedTodo.title + ' ' + (unblockedTodo.body || '');
             const relevantPrefs = window.ContextMatcher.selectRelevant(userMemory, context, 3);
@@ -65,15 +63,17 @@ Instructions:
 
         const userContent = `Execute this task: ${unblockedTodo.title}\n\n${unblockedTodo.body || ''}`;
 
-        const reply = await window.OpenRouterService.chatCompletion({
-            messages: [{ role: 'user', content: 'Execute the task.' }],
+        const reply = await window.LLMProvider.chatCompletion({
+            provider,
             model,
-            apiKey: openRouterKey,
+            messages: [{ role: 'user', content: 'Execute the task.' }],
             systemPrompt: sysPrompt,
-            userContent
+            userContent,
+            thinkingMode,
+            reasoningEffort,
         });
 
-        const { modifiedReply, actions } = window.processAgentSkills(reply);
+        const { modifiedReply, actions } = window.processAgentSkills(reply.content);
 
         if (actions.updateEditorContent) {
             setActiveFileContent(actions.updateEditorContent);
