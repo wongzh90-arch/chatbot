@@ -405,10 +405,10 @@ function App() {
   }
   return true;
 
-case '/self-improve':
+case '/self-improve': {
   if (!args) { addToast('Describe what to improve.', 'error'); return true; }
   if (window.selfImproveRunning) {
-    addToast('Self‑improvement already in progress. Wait or refresh.', 'warning');
+    addToast('Self-improvement already in progress.', 'warning');
     return true;
   }
   window.selfImproveRunning = true;
@@ -420,72 +420,103 @@ case '/self-improve':
 
   setMessages(prev => [...prev, { role: 'user', content: `/self-improve ${args}` }]);
 
-  try {
-    addToast(`🌿 Creating branch ${newBranch}...`, 'info');
-    await window.GitHubService.createBranch(originalRepo, 'main', newBranch, githubToken);
-    
-    // Switch UI to new branch
-    setCurrentBranch(newBranch);
-    await new Promise(r => setTimeout(r, 500));
-    await fetchFileTree();
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
 
-    // Store original orchestration mode, enable autopilot
-    const prevMode = window.Orchestrator.getState().mode;
-    window.Orchestrator.setMode('autopilot');
+  (async () => {
+    try {
+      // Step 1: Create branch
+      addToast(`🌿 Creating branch ${newBranch}...`, 'info');
+      setMessages(prev => [...prev, { role: 'assistant', content: `🌿 **Step 1/4:** Creating branch \`${newBranch}\`...` }]);
+      await window.GitHubService.createBranch(originalRepo, 'main', newBranch, githubToken);
+      setCurrentBranch(newBranch);
+      await wait(800);
+      await fetchFileTree();
 
-    // Plan
-    addToast('📋 Planning...', 'info');
-    const planResult = await window.Orchestrator.runPlanPhase({
-      goal: args, repo: originalRepo, branch: newBranch, githubToken,
-      provider, model: selectedModel, thinkingMode, reasoningEffort,
-      fileTree, addToast, setMessages,
-      projectMemory, userMemory, systemPromptOverride
-    });
-    if (planResult?.error) throw new Error(planResult.message);
+      const prevMode = window.Orchestrator.getState().mode;
+      window.Orchestrator.setMode('autopilot');
 
-    // Execute
-    addToast('🔨 Executing tasks...', 'info');
-    await window.Orchestrator.runExecutePhase({
-      repo: originalRepo, branch: newBranch, githubToken,
-      provider, model: selectedModel, thinkingMode, reasoningEffort,
-      projectMemory, userMemory, systemPromptOverride,
-      addToast, setMessages,
-      setActiveFileContent, setActiveFilePath, setActiveTab
-    });
+      // Step 2: Plan
+      setMessages(prev => [...prev, { role: 'assistant', content: `📋 **Step 2/4:** Planning changes for: "${args}"...` }]);
+      addToast('📋 Planning...', 'info');
+      await wait(300);
 
-    // Review
-    addToast('🔍 Reviewing changes...', 'info');
-    await window.Orchestrator.runReviewPhase({
-      repo: originalRepo, branch: newBranch, githubToken,
-      provider, model: selectedModel, thinkingMode, reasoningEffort,
-      fileTree, addToast, setMessages,
-      projectMemory, userMemory, systemPromptOverride
-    });
+      const planResult = await window.Orchestrator.runPlanPhase({
+        goal: args,
+        repo: originalRepo,
+        branch: newBranch,
+        githubToken,
+        provider, model: selectedModel, thinkingMode, reasoningEffort,
+        fileTree, addToast, setMessages,
+        projectMemory, userMemory, systemPromptOverride,
+      });
 
-    window.Orchestrator.setMode(prevMode);
+      if (planResult?.error) throw new Error(planResult.message || 'Planning failed');
+      addToast('✅ Plan complete', 'success');
+      await wait(1000);
 
-    // Open Pull Request
-    const prTitle = `Self‑improve: ${args.slice(0, 60)}`;
-    const pr = await window.GitHubService.createPullRequest(
-      originalRepo, newBranch, prTitle, 'main', githubToken
-    );
+      // Step 3: Execute
+      setMessages(prev => [...prev, { role: 'assistant', content: `🔨 **Step 3/4:** Executing tasks...` }]);
+      addToast('🔨 Executing...', 'info');
+      await wait(300);
 
-    setMessages(prev => [...prev, {
-      role: 'assistant',
-      content: `✅ **Self‑improvement complete**\n🔀 Pull Request: ${pr.html_url}\n🌐 Netlify preview will be ready in ~2 minutes (no password needed).\n\nMerge after testing.`
-    }]);
-    addToast(`PR opened: ${pr.html_url}`, 'success');
+      await window.Orchestrator.runExecutePhase({
+        repo: originalRepo,
+        branch: newBranch,
+        githubToken,
+        provider, model: selectedModel, thinkingMode, reasoningEffort,
+        projectMemory, userMemory, systemPromptOverride,
+        addToast, setMessages,
+        setActiveFileContent, setActiveFilePath, setActiveTab,
+      });
 
-  } catch (err) {
-    addToast(`Self‑improve failed: ${err.message}`, 'error');
-    setMessages(prev => [...prev, { role: 'assistant', content: `❌ Failed: ${err.message}` }]);
-  } finally {
-    // Restore original branch in UI
-    setCurrentBranch(originalBranch);
-    await fetchFileTree();
-    window.selfImproveRunning = false;
-  }
+      addToast('✅ Execution complete', 'success');
+      await wait(1000);
+
+      // Step 4: Review
+      setMessages(prev => [...prev, { role: 'assistant', content: `🔍 **Step 4/4:** Reviewing changes...` }]);
+      addToast('🔍 Reviewing...', 'info');
+      await wait(300);
+
+      await window.Orchestrator.runReviewPhase({
+        repo: originalRepo,
+        branch: newBranch,
+        githubToken,
+        provider, model: selectedModel, thinkingMode, reasoningEffort,
+        fileTree, addToast, setMessages,
+        projectMemory, userMemory, systemPromptOverride,
+      });
+
+      window.Orchestrator.setMode(prevMode);
+      addToast('✅ Review complete', 'success');
+      await wait(500);
+
+      // Step 5: Open PR
+      const prTitle = `Self-improve: ${args.slice(0, 60)}`;
+      const pr = await window.GitHubService.createPullRequest(
+        originalRepo, newBranch, prTitle, 'main', githubToken
+      );
+
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `✅ **Self-improvement complete!**\n\n🔀 Pull Request: ${pr.html_url}\n\nReview and merge when ready.`,
+      }]);
+      addToast(`🎉 PR opened!`, 'success');
+
+    } catch (err) {
+      addToast(`Self-improve failed: ${err.message}`, 'error');
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `❌ **Self-improve failed:** ${err.message}\n\nTip: Run steps manually:\n1. \`/plan ${args}\`\n2. \`/execute\`\n3. \`/review\``,
+      }]);
+    } finally {
+      setCurrentBranch(originalBranch);
+      await fetchFileTree();
+      window.selfImproveRunning = false;
+    }
+  })();
+
   return true;
+}
       case '/execute': {
         await window.Orchestrator.runExecutePhase({ repo: currentRepo, branch: currentBranch, githubToken, provider, model: selectedModel, thinkingMode, reasoningEffort, projectMemory, userMemory, systemPromptOverride, addToast, setMessages, setActiveFileContent, setActiveFilePath, setActiveTab });
         refreshTasks();
