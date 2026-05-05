@@ -2,7 +2,6 @@ window.Navbar = ({
     workspace, setWorkspace,
     currentRepo, setCurrentRepo,
     currentBranch, setCurrentBranch,
-    openRouterKey, setOpenRouterKey,
     githubToken, setGithubToken,
     selectedModel, setSelectedModel,
     deployHook, setDeployHook,
@@ -10,7 +9,6 @@ window.Navbar = ({
     isLoading,
     rememberKeys, setRememberKeys,
     activeTab, setActiveTab,
-    langSearchKey, setLangSearchKey,
 }) => {
     return React.createElement('header', { className: 'bg-zinc-900 border-b border-zinc-800 p-3 flex flex-col lg:flex-row lg:items-center justify-between gap-2 text-xs shrink-0 z-20' },
         React.createElement('div', { className: 'flex items-center gap-3' },
@@ -26,9 +24,8 @@ window.Navbar = ({
             )
         ),
         React.createElement('div', { className: 'flex flex-wrap items-center gap-2' },
-            React.createElement('input', { type: 'password', placeholder: 'OpenRouter Key', value: openRouterKey, onChange: e => setOpenRouterKey(e.target.value), className: 'p-1.5 rounded bg-zinc-800 border border-zinc-700 w-28 focus:border-amber-500 outline-none' }),
+            // Only GitHub token input remains (still optional)
             React.createElement('input', { type: 'password', placeholder: 'GitHub PAT', value: githubToken, onChange: e => setGithubToken(e.target.value), className: 'p-1.5 rounded bg-zinc-800 border border-zinc-700 w-28 focus:border-amber-500 outline-none' }),
-            React.createElement('input', { type: 'password', placeholder: 'LangSearch Key', value: langSearchKey, onChange: e => setLangSearchKey(e.target.value), className: 'p-1.5 rounded bg-zinc-800 border border-zinc-700 w-28 focus:border-green-500 outline-none' }),
             React.createElement('div', { className: `flex items-center gap-1 px-2 py-1 rounded border ${workspace==='self'?'border-amber-500/30':'border-blue-500/30'}` },
                 React.createElement('span', { className: 'text-[10px] font-bold uppercase text-zinc-500' }, workspace==='self'?'Self:':'Target:'),
                 React.createElement('input', { type: 'text', placeholder: 'owner/repo', value: currentRepo, onChange: e => setCurrentRepo(e.target.value), className: 'p-1 rounded bg-zinc-900 border border-zinc-700 w-28 focus:border-amber-500 outline-none' }),
