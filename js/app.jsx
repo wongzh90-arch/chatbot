@@ -48,6 +48,21 @@ function App() {
     workspaceStorage.setItem('TARGET_BRANCH', targetBranch);
   }, [workspace, selfRepo, selfBranch, targetRepo, targetBranch]);
 
+  // ========== Customisation ==========
+  const [systemPromptOverride, setSystemPromptOverride] = useState(
+    keyStorage.getItem('SYSPROMPT') || ''
+  );
+  useEffect(() => { keyStorage.setItem('SYSPROMPT', systemPromptOverride); }, [systemPromptOverride]);
+
+  // ========== User Memory (personal preferences) ==========
+  const [userMemory, setUserMemory] = useState(() => {
+    const saved = localStorage.getItem('USER_MEMORY');
+    return saved ? JSON.parse(saved) : [];
+  });
+  useEffect(() => {
+    localStorage.setItem('USER_MEMORY', JSON.stringify(userMemory));
+  }, [userMemory]);
+
   // ========== Chat State ==========
   const [conversations, setConversations] = useState(() => {
     const saved = localStorage.getItem('LOCAL_CONVERSATIONS');
@@ -195,10 +210,8 @@ function App() {
   };
 
   // ========== AI Search Synthesis ==========
-  // Pick the best available free model for synthesis
   const getSynthesisModel = () => {
     const freeModels = models.filter(m => m.free && m.value !== 'openrouter/auto');
-    // Prefer larger/smarter free models
     const preferred = ['llama-3.3-70b', 'gemini-2.0-flash', 'qwen-2.5-72b', 'deepseek-r1'];
     for (const pref of preferred) {
       const match = freeModels.find(m => m.value.includes(pref));
@@ -285,16 +298,14 @@ function App() {
           if (results.length === 0) {
             setMessages(prev => [...prev, { role: 'assistant', content: 'No results found.' }]);
           } else {
-            // Add results immediately, synthesise in background
             setMessages(prev => [...prev, {
               role: 'assistant',
-              content: `Found ${results.length} results for "${args}"`,
+              content: `Found ${results.length} results`,
               searchResults: results,
               searchQuery: args,
               synthesis: null,
             }]);
             addToast(`${results.length} results · synthesising…`, 'info');
-            // Synthesise with AI and update the message
             const synthesis = await synthesiseSearchResults(args, results);
             if (synthesis) {
               setMessages(prev => {
@@ -316,15 +327,15 @@ function App() {
       }
       case '/plan': {
         if (!args) { addToast('Provide a goal.', 'error'); return true; }
-        await window.Orchestrator.runPlanPhase({ goal: args, repo: currentRepo, branch: currentBranch, githubToken, openRouterKey, model: selectedModel, fileTree, addToast, setMessages });
+        await window.Orchestrator.runPlanPhase({ goal: args, repo: currentRepo, branch: currentBranch, githubToken, openRouterKey, model: selectedModel, fileTree, addToast, setMessages, projectMemory, userMemory, systemPromptOverride });
         refreshTasks(); return true;
       }
       case '/execute': {
-        await window.Orchestrator.runExecutePhase({ repo: currentRepo, branch: currentBranch, githubToken, openRouterKey, model: selectedModel, projectMemory, addToast, setMessages, setActiveFileContent, setActiveFilePath, setActiveTab });
+        await window.Orchestrator.runExecutePhase({ repo: currentRepo, branch: currentBranch, githubToken, openRouterKey, model: selectedModel, projectMemory, userMemory, systemPromptOverride, addToast, setMessages, setActiveFileContent, setActiveFilePath, setActiveTab });
         refreshTasks(); return true;
       }
       case '/review': {
-        await window.Orchestrator.runReviewPhase({ repo: currentRepo, branch: currentBranch, githubToken, openRouterKey, model: selectedModel, fileTree, addToast, setMessages });
+        await window.Orchestrator.runReviewPhase({ repo: currentRepo, branch: currentBranch, githubToken, openRouterKey, model: selectedModel, fileTree, addToast, setMessages, projectMemory, userMemory, systemPromptOverride });
         refreshTasks(); return true;
       }
       case '/autopilot':
@@ -345,6 +356,22 @@ function App() {
         setActiveTab('tasks');
         return true;
       }
+      case '/remember':
+        if (!args) { addToast('Provide a preference to remember', 'error'); return true; }
+        setUserMemory(prev => [...prev, args]);
+        setMessages(prev => [...prev, { role: 'user', content: userText }, { role: 'assistant', content: `🧠 I'll remember: *${args}*` }]);
+        return true;
+      case '/forgetme':
+        setUserMemory([]);
+        setMessages(prev => [...prev, { role: 'user', content: userText }, { role: 'assistant', content: 'All personal preferences cleared.' }]);
+        return true;
+      case '/myprefs':
+        setMessages(prev => [...prev, { role: 'user', content: userText }, {
+          role: 'assistant', content: userMemory.length === 0
+            ? 'No personal preferences saved yet.'
+            : `🧠 **Your preferences:**\n${userMemory.map((p, i) => `${i+1}. ${p}`).join('\n')}`
+        }]);
+        return true;
       default: return false;
     }
   };
@@ -377,8 +404,22 @@ function App() {
     setIsLoading(true);
     setStreamingMessage('');
 
-    const memoryStr = projectMemory.length ? '\nPROJECT MEMORY:\n' + projectMemory.map((m, i) => `${i + 1}. ${m}`).join('\n') : '';
-    const sysPrompt = `You are an autonomous coding agent. Repo: ${currentRepo} (branch: ${currentBranch}). Active file: ${activeFilePath}.\nContent:\n\`\`\`\n${activeFileContent}\n\`\`\`${memoryStr}\nUse <skill name="update_editor">CODE</skill> to update the active file. Use <skill name="read_file" path="..."/> to request a file.`;
+    // Build system prompt
+    const memoryStr = projectMemory.length ? '\nPROJECT MEMORY:\n' + projectMemory.map((m, i) => `${i+1}. ${m}`).join('\n') : '';
+    let sysPrompt = `You are an autonomous coding agent. Repo: ${currentRepo} (branch: ${currentBranch}). Active file: ${activeFilePath}.\nContent:\n\`\`\`\n${activeFileContent}\n\`\`\`${memoryStr}\nUse <skill name="update_editor">CODE</skill> to update the active file. Use <skill name="read_file" path="..."/> to request a file.`;
+
+    // Apply system prompt override
+    if (systemPromptOverride.trim()) {
+      sysPrompt = systemPromptOverride + '\n\n' + sysPrompt;
+    }
+
+    // Inject relevant user preferences
+    const contextForRelevance = userText + ' ' + messages.slice(-2).map(m => m.content).join(' ');
+    const relevantPrefs = window.ContextMatcher.selectRelevant(userMemory, contextForRelevance, 3);
+    const userMemoryStr = relevantPrefs.length
+      ? '\n\nRELEVANT USER PREFERENCES (adhere to these):\n' + relevantPrefs.map((p, i) => `${i+1}. ${p}`).join('\n')
+      : '';
+    sysPrompt += userMemoryStr;
 
     let userContent = userText;
     if (uploadedContext) {
@@ -459,6 +500,7 @@ function App() {
       isLoading, rememberKeys, setRememberKeys,
       activeTab, setActiveTab,
       models, modelsLoading,
+      systemPromptOverride, setSystemPromptOverride
     }),
 
     React.createElement('div', { className: 'flex-1 flex overflow-hidden' },
