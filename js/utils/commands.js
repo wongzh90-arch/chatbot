@@ -18,4 +18,6 @@ window.COMMANDS = [
     { cmd: '/remember', desc: 'Save a personal preference (Usage: /remember <preference>)' },
     { cmd: '/forgetme', desc: 'Clear all personal preferences' },
     { cmd: '/myprefs',  desc: 'Show all saved preferences' },
+    { cmd: '/self-improve', desc: 'Create a branch, plan changes, execute, and open a PR (safe self‑improvement)' },
+    { cmd: '/rollback', desc: 'Reset the current branch to match main (undo unmerged changes)' }
 ];
