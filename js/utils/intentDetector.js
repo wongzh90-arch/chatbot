@@ -1,4 +1,3 @@
-// Intent detection: maps natural language to slash commands
 window.IntentDetector = (() => {
 
   const intentPatterns = [
@@ -10,7 +9,6 @@ window.IntentDetector = (() => {
         /^(?:how\s+(?:do|does|to)\s+.+\?)$/i,
       ],
       handler: (match, fullText) => {
-        // Extract the search query
         const queryMatch = fullText.match(
           /(?:search(?:\s+(?:the\s+)?web)?\s+(?:for\s+)?|look\s+up\s+|find\s+info(?:rmation)?\s+(?:on|about)\s+|google\s+)(.+)/i
         );
@@ -97,7 +95,7 @@ window.IntentDetector = (() => {
       ],
       handler: () => ({ cmd: '/execute', args: '', confidence: 0.85 })
     },
-    // Learn
+    // Learn (project memory)
     {
       patterns: [
         /^(?:remember|learn|note)\s+(?:that\s+)?(.+)/i,
@@ -107,6 +105,16 @@ window.IntentDetector = (() => {
         const ruleMatch = fullText.match(/(?:remember|learn|note)\s+(?:that\s+)?(.+)/i)
           || fullText.match(/add\s+(?:a\s+)?(?:rule|memory)\s*:?\s*(.+)/i);
         return { cmd: '/learn', args: ruleMatch ? ruleMatch[1] : fullText, confidence: 0.88 };
+      }
+    },
+    // Remember (personal preference)
+    {
+      patterns: [
+        /^(?:remember that|remember)\s+(.+)/i,
+      ],
+      handler: (match, fullText) => {
+        const pref = fullText.replace(/^(?:remember that|remember)\s+/i, '').trim();
+        return { cmd: '/remember', args: pref, confidence: 0.9 };
       }
     },
     // Clear
@@ -121,7 +129,7 @@ window.IntentDetector = (() => {
 
   function detect(text) {
     const trimmed = text.trim();
-    if (trimmed.startsWith('/')) return null; // Already a command
+    if (trimmed.startsWith('/')) return null;
 
     for (const intent of intentPatterns) {
       for (const pattern of intent.patterns) {
@@ -134,7 +142,6 @@ window.IntentDetector = (() => {
     return null;
   }
 
-  // Returns a suggestion (non-blocking) if confidence is high enough
   function suggest(text) {
     const result = detect(text);
     if (result && result.confidence >= 0.8) return result;
