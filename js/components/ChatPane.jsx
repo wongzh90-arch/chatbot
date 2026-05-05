@@ -5,6 +5,7 @@ window.ChatPane = ({
   showCmdHints, onCmdHintClick,
   chatScrollRef, inputRef,
   streamingMessage,
+  conversationId,           // new prop
 }) => {
   const { useState, useRef, useEffect } = React;
   const [intentSuggestion, setIntentSuggestion] = useState(null);
@@ -45,7 +46,7 @@ window.ChatPane = ({
     // Header
     React.createElement('div', { className: 'px-4 py-2.5 border-b border-zinc-900 bg-zinc-950 shrink-0 flex items-center gap-2' },
       React.createElement('div', {
-        className: `w-2 h-2 rounded-full shrink-0 ${isLoading ? 'bg-amber-400 animate-pulse' : 'bg-green-5'}`
+        className: `w-2 h-2 rounded-full shrink-0 ${isLoading ? 'bg-amber-400 animate-pulse' : 'bg-green-500'}`
       }),
       React.createElement('span', { className: 'font-mono font-bold text-xs uppercase text-zinc-500 tracking-widest' },
         isLoading ? 'Processing…' : 'Terminal'
@@ -75,7 +76,7 @@ window.ChatPane = ({
       )
     ),
 
-    // Input area
+    // Input area (unchanged)
     React.createElement('div', { className: 'border-t border-zinc-900 bg-zinc-950/95 backdrop-blur flex-shrink-0' },
 
       // Command hints
@@ -160,7 +161,14 @@ window.ChatPane = ({
           className: 'px-4 py-2.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-950 font-bold rounded-xl transition shrink-0 text-sm mb-0.5'
         }, isLoading ? '…' : '↑')
       )
-    )
+    ),
+
+    // Summary panel (added at the bottom)
+    React.createElement(window.SummaryPanel, {
+      conversationId: conversationId,
+      messages: messages,
+      onRegenerate: () => {}
+    })
   );
 };
 
