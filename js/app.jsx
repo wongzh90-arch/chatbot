@@ -519,14 +519,13 @@ function App() {
             }
             const finalMessages = [...newMessages, { role: 'assistant', content: modifiedReply, model: usedModel, reasoning_content: reasoning }];
             setMessages(finalMessages);
-            // Trigger auto summary after assistant response
-            await window.SummaryService.maybeSummarise(activeConversationId, finalMessages, 'auto');
+            await window.SummaryService.maybeSummarise(activeConversationId, finalMessages, 'command');
           } catch (err) {
             console.error('processAgentSkills error:', err);
-            addToast('Error processing response, showing raw output.', 'error');
+            addToast('Error processing response', 'error');
             const errorMessages = [...newMessages, { role: 'assistant', content: fullContent || '(no content)', model: usedModel }];
             setMessages(errorMessages);
-            await window.SummaryService.maybeSummarise(activeConversationId, errorMessages, 'auto');
+            await window.SummaryService.maybeSummarise(activeConversationId, errorMessages, 'command');
           } finally {
             setStreamingMessage('');
             setStreamingReasoning(null);
