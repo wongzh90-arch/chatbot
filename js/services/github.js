@@ -52,7 +52,10 @@ window.GitHubService = (() => {
             headers: headers(token),
             body: JSON.stringify({ ref: `refs/heads/${newBranch}`, sha })
         });
-        if (!createRes.ok) throw new Error((await createRes.json()).message);
+        // 422 = branch already exists, just use it
+        if (!createRes.ok && createRes.status !== 422) {
+            throw new Error((await createRes.json()).message);
+        }
         return newBranch;
     }
 
@@ -72,7 +75,6 @@ window.GitHubService = (() => {
         return res.ok;
     }
 
-    // ---- NEW: reset branch to another branch (force) ----
     async function resetBranch(repo, branch, sourceBranch, token) {
         const refRes = await fetch(`https://api.github.com/repos/${repo}/git/ref/heads/${sourceBranch}`, { headers: headers(token) });
         if (!refRes.ok) throw new Error(`Source branch ${sourceBranch} not found`);
