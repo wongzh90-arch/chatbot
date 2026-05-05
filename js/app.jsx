@@ -1,27 +1,58 @@
 const { useState, useEffect, useRef } = React;
 
 function App() {
-  // ========== Models (live from OpenRouter) ==========
-  const [models, setModels] = useState(window.ModelRegistry.FALLBACK_MODELS);
-  const [modelsLoading, setModelsLoading] = useState(true);
+  // ========== Provider ==========
+  const [provider, setProvider] = useState(
+    localStorage.getItem('PROVIDER') || 'deepseek'
+  );
+  const [thinkingMode, setThinkingMode] = useState(
+    localStorage.getItem('THINKING_MODE') === 'true'
+  );
+  const [reasoningEffort, setReasoningEffort] = useState(
+    localStorage.getItem('REASONING_EFFORT') || 'high'
+  );
+
+  useEffect(() => { localStorage.setItem('PROVIDER', provider); }, [provider]);
+  useEffect(() => { localStorage.setItem('THINKING_MODE', thinkingMode); }, [thinkingMode]);
+  useEffect(() => { localStorage.setItem('REASONING_EFFORT', reasoningEffort); }, [reasoningEffort]);
+
+  // ========== Models ==========
+  const DEEPSEEK_MODELS = [
+    { value: 'deepseek-v4-flash', label: 'DeepSeek Flash (Fast)' },
+    { value: 'deepseek-v4-pro',   label: 'DeepSeek Pro (Powerful)' },
+  ];
+
+  const [openRouterModels, setOpenRouterModels] = useState(
+    window.ModelRegistry ? window.ModelRegistry.FALLBACK_MODELS : []
+  );
+  const [modelsLoading, setModelsLoading] = useState(false);
 
   useEffect(() => {
-    window.ModelRegistry.fetchModels().then(m => {
-      setModels(m);
-      setModelsLoading(false);
-    });
-  }, []);
+    if (provider === 'openrouter') {
+      setModelsLoading(true);
+      window.ModelRegistry.fetchModels().then(m => {
+        setOpenRouterModels(m);
+        setModelsLoading(false);
+      });
+    }
+  }, [provider]);
 
-  // ========== API Keys ==========
+  // Current model list and default
+  const models = provider === 'deepseek' ? DEEPSEEK_MODELS : openRouterModels;
+  const defaultModel = provider === 'deepseek'
+    ? (keyStorage.getItem('OR_MODEL') && DEEPSEEK_MODELS.some(m => m.value === keyStorage.getItem('OR_MODEL'))
+        ? keyStorage.getItem('OR_MODEL')
+        : 'deepseek-v4-flash')
+    : (keyStorage.getItem('OR_MODEL') || 'openrouter/auto');
+
+  // ========== API Keys (now only GitHub, no user-facing LLM key) ==========
   const [rememberKeys, setRememberKeys] = useState(localStorage.getItem('REMEMBER_KEYS') === 'true');
   const keyStorage = rememberKeys ? localStorage : sessionStorage;
 
-  const [openRouterKey, setOpenRouterKey] = useState(keyStorage.getItem('OR_KEY') || '');
   const [githubToken, setGithubToken] = useState(keyStorage.getItem('GH_TOKEN') || '');
-  const [selectedModel, setSelectedModel] = useState(keyStorage.getItem('OR_MODEL') || 'openrouter/auto');
+  const [selectedModel, setSelectedModel] = useState(defaultModel);
   const [deployHook, setDeployHook] = useState(keyStorage.getItem('DEPLOY_HOOK') || '');
 
-  useEffect(() => { keyStorage.setItem('OR_KEY', openRouterKey); }, [openRouterKey]);
   useEffect(() => { keyStorage.setItem('GH_TOKEN', githubToken); }, [githubToken]);
   useEffect(() => { keyStorage.setItem('OR_MODEL', selectedModel); }, [selectedModel]);
   useEffect(() => { keyStorage.setItem('DEPLOY_HOOK', deployHook); }, [deployHook]);
@@ -54,7 +85,7 @@ function App() {
   );
   useEffect(() => { keyStorage.setItem('SYSPROMPT', systemPromptOverride); }, [systemPromptOverride]);
 
-  // ========== User Memory (personal preferences) ==========
+  // ========== User Memory ==========
   const [userMemory, setUserMemory] = useState(() => {
     const saved = localStorage.getItem('USER_MEMORY');
     return saved ? JSON.parse(saved) : [];
@@ -79,6 +110,7 @@ function App() {
   const [inputPrompt, setInputPrompt] = useState('');
   const [uploadedContext, setUploadedContext] = useState(null);
   const [streamingMessage, setStreamingMessage] = useState('');
+  const [streamingReasoning, setStreamingReasoning] = useState(null);
   const chatScrollRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -211,7 +243,8 @@ function App() {
 
   // ========== AI Search Synthesis ==========
   const getSynthesisModel = () => {
-    const freeModels = models.filter(m => m.free && m.value !== 'openrouter/auto');
+    if (provider === 'deepseek') return selectedModel;
+    const freeModels = openRouterModels.filter(m => m.free && m.value !== 'openrouter/auto');
     const preferred = ['llama-3.3-70b', 'gemini-2.0-flash', 'qwen-2.5-72b', 'deepseek-r1'];
     for (const pref of preferred) {
       const match = freeModels.find(m => m.value.includes(pref));
@@ -222,17 +255,19 @@ function App() {
 
   const synthesiseSearchResults = async (query, results) => {
     const context = window.WebSearchService.formatForAI(results);
-    const sysPrompt = `You are a helpful research assistant. Given web search results, write a concise, accurate synthesis of the key information relevant to the query. Be direct and informative. Use markdown for formatting. Do not mention the sources by number — just synthesise the facts. Keep it under 150 words.`;
+    const sysPrompt = `You are a helpful research assistant. Given web search results, write a concise, accurate synthesis of the key information relevant to the query. Be direct and informative. Use markdown for formatting. Keep it under 150 words.`;
     const userContent = `Query: "${query}"\n\nSearch results:\n${context}\n\nWrite a concise synthesis.`;
     try {
       const synthesisModel = getSynthesisModel();
-      const { content } = await window.OpenRouterService.chatCompletion({
-        messages: [],
+      const result = await window.LLMProvider.chatCompletion({
+        provider,
         model: synthesisModel,
+        messages: [],
         systemPrompt: sysPrompt,
         userContent,
+        thinkingMode: false,
       });
-      return content;
+      return result.content;
     } catch {
       return null;
     }
@@ -240,6 +275,7 @@ function App() {
 
   // ========== Slash Commands ==========
   const executeSlashCommand = async (cmd, args, userText) => {
+    // (same as original, unchanged)
     switch (cmd) {
       case '/help':
         setMessages(prev => [...prev,
@@ -327,15 +363,15 @@ function App() {
       }
       case '/plan': {
         if (!args) { addToast('Provide a goal.', 'error'); return true; }
-        await window.Orchestrator.runPlanPhase({ goal: args, repo: currentRepo, branch: currentBranch, githubToken, openRouterKey, model: selectedModel, fileTree, addToast, setMessages, projectMemory, userMemory, systemPromptOverride });
+        await window.Orchestrator.runPlanPhase({ goal: args, repo: currentRepo, branch: currentBranch, githubToken, provider, model: selectedModel, thinkingMode, reasoningEffort, fileTree, addToast, setMessages, projectMemory, userMemory, systemPromptOverride });
         refreshTasks(); return true;
       }
       case '/execute': {
-        await window.Orchestrator.runExecutePhase({ repo: currentRepo, branch: currentBranch, githubToken, openRouterKey, model: selectedModel, projectMemory, userMemory, systemPromptOverride, addToast, setMessages, setActiveFileContent, setActiveFilePath, setActiveTab });
+        await window.Orchestrator.runExecutePhase({ repo: currentRepo, branch: currentBranch, githubToken, provider, model: selectedModel, thinkingMode, reasoningEffort, projectMemory, userMemory, systemPromptOverride, addToast, setMessages, setActiveFileContent, setActiveFilePath, setActiveTab });
         refreshTasks(); return true;
       }
       case '/review': {
-        await window.Orchestrator.runReviewPhase({ repo: currentRepo, branch: currentBranch, githubToken, openRouterKey, model: selectedModel, fileTree, addToast, setMessages, projectMemory, userMemory, systemPromptOverride });
+        await window.Orchestrator.runReviewPhase({ repo: currentRepo, branch: currentBranch, githubToken, provider, model: selectedModel, thinkingMode, reasoningEffort, fileTree, addToast, setMessages, projectMemory, userMemory, systemPromptOverride });
         refreshTasks(); return true;
       }
       case '/autopilot':
@@ -403,6 +439,7 @@ function App() {
     setMessages(newMessages);
     setIsLoading(true);
     setStreamingMessage('');
+    setStreamingReasoning(null);
 
     // Build system prompt
     const memoryStr = projectMemory.length ? '\nPROJECT MEMORY:\n' + projectMemory.map((m, i) => `${i+1}. ${m}`).join('\n') : '';
@@ -429,21 +466,25 @@ function App() {
     }
 
     try {
-      await window.OpenRouterService.chatCompletionStream({
-        messages: newMessages,
+      await window.LLMProvider.chatCompletionStream({
+        provider,
         model: selectedModel,
+        messages: newMessages,
         systemPrompt: sysPrompt,
         userContent,
+        thinkingMode,
+        reasoningEffort,
         onToken: (_, accumulated) => setStreamingMessage(accumulated),
-        onDone: (fullContent, usedModel) => {
+        onDone: (fullContent, usedModel, reasoning) => {
           const { modifiedReply, actions } = window.processAgentSkills(fullContent);
           if (actions.updateEditorContent) {
             setActiveFileContent(actions.updateEditorContent);
             addToast('Agent updated editor', 'success');
             setActiveTab('editor');
           }
-          setMessages(prev => [...prev, { role: 'assistant', content: modifiedReply, model: usedModel }]);
+          setMessages(prev => [...prev, { role: 'assistant', content: modifiedReply, model: usedModel, reasoning_content: reasoning }]);
           setStreamingMessage('');
+          setStreamingReasoning(null);
           setUploadedContext(null);
           setIsLoading(false);
         },
@@ -451,6 +492,7 @@ function App() {
           addToast(e.message, 'error');
           setMessages(prev => [...prev, { role: 'assistant', content: `*Error: ${e.message}*` }]);
           setStreamingMessage('');
+          setStreamingReasoning(null);
           setIsLoading(false);
         }
       });
@@ -458,6 +500,7 @@ function App() {
       addToast(e.message, 'error');
       setMessages(prev => [...prev, { role: 'assistant', content: `*Error: ${e.message}*` }]);
       setStreamingMessage('');
+      setStreamingReasoning(null);
       setIsLoading(false);
     }
   };
@@ -500,7 +543,10 @@ function App() {
       isLoading, rememberKeys, setRememberKeys,
       activeTab, setActiveTab,
       models, modelsLoading,
-      systemPromptOverride, setSystemPromptOverride
+      systemPromptOverride, setSystemPromptOverride,
+      provider, setProvider,
+      thinkingMode, setThinkingMode,
+      reasoningEffort, setReasoningEffort,
     }),
 
     React.createElement('div', { className: 'flex-1 flex overflow-hidden' },
@@ -552,7 +598,7 @@ function App() {
           showCmdHints,
           onCmdHintClick: cmd => { setInputPrompt(cmd + ' '); if (inputRef.current) inputRef.current.focus(); },
           chatScrollRef, inputRef,
-          streamingMessage,
+          streamingMessage, streamingReasoning,
         })
       )
     )
