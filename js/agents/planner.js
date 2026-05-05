@@ -11,55 +11,61 @@ window.PlannerAgent = (() => {
     }) {
         addToast('🔍 Analyzing repository...', 'info');
 
-        const fileList = fileTree.map(f => f.path).join('\n');
-        let sysPrompt = `You are a senior software architect analyzing a codebase.
+        // Only send relevant files, not the entire tree
+        const relevantExtensions = ['.js', '.jsx', '.ts', '.tsx', '.html', '.css', '.json'];
+        const excludedDirs = ['node_modules', '.git', 'dist', 'build', '.next'];
+        const filteredFiles = fileTree
+            .filter(f => {
+                const isExcluded = excludedDirs.some(d => f.path.startsWith(d));
+                const isRelevant = relevantExtensions.some(ext => f.path.endsWith(ext));
+                return !isExcluded && isRelevant;
+            })
+            .map(f => f.path)
+            .slice(0, 40); // cap at 40 files max
+
+        let sysPrompt = `You are a senior software architect. Be concise.
 Repo: ${repo} (branch: ${branch})
 Goal: "${goal}"
 
-Below is the complete file tree of the repository:
-${fileList}
+Key files:
+${filteredFiles.join('\n')}
 
-Your job is to:
-1. Identify which files need to be changed or created.
-2. Decide the correct dependency order.
-3. Break the work into small, focused tasks (each task touches at most 1-2 files).
-
-Return a JSON object with this exact structure:
+Return ONLY this JSON (no markdown, no extra text):
 {
-  "analysis": "Brief analysis of what the repo does and how the goal fits in.",
-  "milestone_title": "Short milestone name",
+  "analysis": "One sentence summary of what needs to change.",
+  "milestone_title": "Short milestone name (max 50 chars)",
   "tasks": [
     {
       "title": "Short task title",
-      "description": "Detailed instructions for the AI executor",
+      "description": "What to do in 2-3 sentences max.",
       "files": ["path/to/file.js"],
-      "depends_on_task_index": null or (0-based index of the task that must complete first)
+      "depends_on_task_index": null
     }
   ]
 }
 
 Rules:
-- Each task must be small and clearly defined.
-- Dependencies must be acyclic.
-- Return ONLY the JSON object, no markdown wrappers.`;
+- Max 4 tasks total.
+- Each task touches at most 1 file.
+- Descriptions must be brief and actionable.
+- No acyclic dependencies.`;
 
         if (systemPromptOverride && systemPromptOverride.trim()) {
             sysPrompt = systemPromptOverride + '\n\n' + sysPrompt;
         }
 
         if (userMemory && userMemory.length) {
-            const context = goal + ' ' + repo + ' ' + branch;
-            const relevantPrefs = window.ContextMatcher.selectRelevant(userMemory, context, 3);
+            const relevantPrefs = window.ContextMatcher.selectRelevant(userMemory, goal + ' ' + repo, 2);
             if (relevantPrefs.length) {
-                sysPrompt += '\n\nRELEVANT USER PREFERENCES:\n' + relevantPrefs.map((p, i) => `${i+1}. ${p}`).join('\n');
+                sysPrompt += '\n\nUSER PREFS:\n' + relevantPrefs.join('\n');
             }
         }
 
         if (projectMemory && projectMemory.length) {
-            sysPrompt += '\n\nPROJECT MEMORY:\n' + projectMemory.map((m, i) => `${i+1}. ${m}`).join('\n');
+            sysPrompt += '\n\nPROJECT MEMORY:\n' + projectMemory.slice(0, 3).join('\n');
         }
 
-        const userContent = `Analyze the repository ${repo} and create a plan to: ${goal}`;
+        const userContent = `Plan: ${goal}`;
 
         const reply = await window.LLMProvider.chatCompletion({
             provider,
@@ -67,7 +73,7 @@ Rules:
             messages: [{ role: 'user', content: 'Plan this.' }],
             systemPrompt: sysPrompt,
             userContent,
-            thinkingMode,
+            thinkingMode: false, // always off for planner to save time
             reasoningEffort,
         });
 
@@ -79,9 +85,12 @@ Rules:
         try {
             plan = JSON.parse(jsonStr);
         } catch {
-            addToast('Failed to parse plan JSON. Raw reply shown in chat.', 'error');
+            addToast('Failed to parse plan JSON.', 'error');
             return { error: 'PARSE_FAILED', raw: reply.content };
         }
+
+        // Cap tasks at 4 just in case the AI ignores the instruction
+        plan.tasks = plan.tasks.slice(0, 4);
 
         addToast(`Plan created: ${plan.tasks.length} tasks`, 'success');
 
@@ -103,18 +112,16 @@ Rules:
                     ? [issueMap[task.depends_on_task_index]].filter(Boolean)
                     : [];
                 const body = `**Files:** ${(task.files || []).join(', ')}\n\n${task.description}`;
-                const issue = await window.TaskManager.createTask(repo, task.title, body, milestone.number, githubToken, blocking);
+                const issue = await window.TaskManager.createTask(
+                    repo, task.title, body, milestone.number, githubToken, blocking
+                );
                 issueMap[i] = issue.number;
                 createdTasks.push({ ...task, issueNumber: issue.number, html_url: issue.html_url });
             }
 
-            addToast(`✅ ${createdTasks.length} tasks created in milestone "${milestone.title}"`, 'success');
-            return {
-                milestone,
-                tasks: createdTasks,
-                analysis: plan.analysis,
-                issueMap
-            };
+            addToast(`✅ ${createdTasks.length} tasks created`, 'success');
+            return { milestone, tasks: createdTasks, analysis: plan.analysis, issueMap };
+
         } catch (e) {
             addToast(`GitHub error: ${e.message}`, 'error');
             return { error: 'GITHUB_ERROR', message: e.message, plan };
