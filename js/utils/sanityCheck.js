@@ -6,8 +6,8 @@ Content:
 ${newContent.slice(0, 2000)}
 \`\`\`
 Check for:
-1. Syntax errors (JS, HTML, CSS)
-2. Dangerous patterns: removing password gate, adding eval(), infinite loops
+1. Syntax errors (JavaScript, HTML, CSS)
+2. Dangerous patterns: removing the password gate, adding eval(), infinite loops
 3. Breaking changes: removing a critical function or component
 Answer only "PASS" or "FAIL: <reason>".`;
 
