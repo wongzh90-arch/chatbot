@@ -43,6 +43,11 @@ window.GitHubService = (() => {
         return res.json();
     }
 
+    async function getDefaultBranch(repo, token) {
+        const info = await getRepoInfo(repo, token);
+        return info.default_branch;
+    }
+
     async function createBranch(repo, sourceBranch, newBranch, token) {
         const refRes = await fetch(`https://api.github.com/repos/${repo}/git/ref/heads/${sourceBranch}`, { headers: headers(token) });
         if (!refRes.ok) throw new Error(`Source branch not found`);
@@ -52,7 +57,6 @@ window.GitHubService = (() => {
             headers: headers(token),
             body: JSON.stringify({ ref: `refs/heads/${newBranch}`, sha })
         });
-        // 422 = branch already exists, just use it
         if (!createRes.ok && createRes.status !== 422) {
             throw new Error((await createRes.json()).message);
         }
@@ -87,5 +91,15 @@ window.GitHubService = (() => {
         if (!updateRes.ok) throw new Error(`Reset failed: ${await updateRes.text()}`);
     }
 
-    return { fetchFileTree, loadFileContent, commitFile, createBranch, createPullRequest, branchExists, getRepoInfo, resetBranch };
+    return { 
+        fetchFileTree, 
+        loadFileContent, 
+        commitFile, 
+        createBranch, 
+        createPullRequest, 
+        branchExists, 
+        getRepoInfo,
+        getDefaultBranch,
+        resetBranch 
+    };
 })();
