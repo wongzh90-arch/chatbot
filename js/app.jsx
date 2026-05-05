@@ -120,7 +120,6 @@ function App() {
     const saved = localStorage.getItem(`LOCAL_MSGS_${activeConversationId}`);
     if (saved) setMessages(JSON.parse(saved));
     else setMessages([{ role: 'assistant', content: 'New chat. Type `/help` for commands.' }]);
-    // Trigger summary generation if none exists (optional)
     const existingSummary = window.SummaryService.getSummary(activeConversationId);
     if (!existingSummary && messages.length > 0) {
       window.SummaryService.maybeSummarise(activeConversationId, messages, 'manual');
@@ -472,7 +471,6 @@ function App() {
 
     const newMessages = [...messages, { role: 'user', content: userText }];
     setMessages(newMessages);
-    // Trigger auto summary after user message
     await window.SummaryService.maybeSummarise(activeConversationId, newMessages, 'auto');
     setIsLoading(true);
     setStreamingMessage('');
@@ -564,6 +562,7 @@ function App() {
   // ========== Render ==========
   return React.createElement('div', { className: 'flex flex-col h-screen bg-zinc-950 text-zinc-200 overflow-hidden' },
 
+    // Toast notifications (outside the error boundary)
     React.createElement('div', { className: 'fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none' },
       toasts.map(t => React.createElement('div', {
         key: t.id,
@@ -576,6 +575,7 @@ function App() {
       }, t.message))
     ),
 
+    // Navbar
     React.createElement(window.Navbar, {
       workspace, setWorkspace,
       currentRepo, setCurrentRepo,
@@ -593,56 +593,61 @@ function App() {
       reasoningEffort, setReasoningEffort,
     }),
 
-    React.createElement('div', { className: 'flex-1 flex overflow-hidden' },
+    // Main content wrapped in ErrorBoundary
+    React.createElement(window.ErrorBoundary, null,
+      React.createElement('div', { className: 'flex-1 flex overflow-hidden' },
 
-      React.createElement('div', { className: 'w-40 sm:w-48 bg-zinc-950 border-r border-zinc-900 flex flex-col shrink-0' },
-        React.createElement('div', { className: 'p-2 border-b border-zinc-900 flex items-center justify-between' },
-          React.createElement('span', { className: 'font-bold text-[10px] uppercase text-zinc-600 tracking-widest' }, 'Chats'),
-          React.createElement('button', {
-            onClick: createNewConversation,
-            className: 'text-[10px] bg-amber-600 hover:bg-amber-500 text-zinc-950 px-2 py-1 rounded-md font-bold transition'
-          }, '+ New')
-        ),
-        React.createElement('div', { className: 'flex-1 overflow-y-auto custom-scrollbar' },
-          conversations.map(conv =>
-            React.createElement('div', {
-              key: conv.id, onClick: () => setActiveConversationId(conv.id),
-              className: `group flex items-center justify-between px-3 py-2.5 cursor-pointer transition border-b border-zinc-900/50 ${
-                conv.id === activeConversationId ? 'bg-zinc-800 text-zinc-200' : 'text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300'
-              }`
-            },
-              React.createElement('span', { className: 'text-xs truncate flex-1' }, conv.title),
-              React.createElement('button', {
-                onClick: e => { e.stopPropagation(); deleteConversation(conv.id); },
-                className: 'opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 ml-1 text-sm leading-none transition'
-              }, '×')
+        // Conversation list sidebar
+        React.createElement('div', { className: 'w-40 sm:w-48 bg-zinc-950 border-r border-zinc-900 flex flex-col shrink-0' },
+          React.createElement('div', { className: 'p-2 border-b border-zinc-900 flex items-center justify-between' },
+            React.createElement('span', { className: 'font-bold text-[10px] uppercase text-zinc-600 tracking-widest' }, 'Chats'),
+            React.createElement('button', {
+              onClick: createNewConversation,
+              className: 'text-[10px] bg-amber-600 hover:bg-amber-500 text-zinc-950 px-2 py-1 rounded-md font-bold transition'
+            }, '+ New')
+          ),
+          React.createElement('div', { className: 'flex-1 overflow-y-auto custom-scrollbar' },
+            conversations.map(conv =>
+              React.createElement('div', {
+                key: conv.id, onClick: () => setActiveConversationId(conv.id),
+                className: `group flex items-center justify-between px-3 py-2.5 cursor-pointer transition border-b border-zinc-900/50 ${
+                  conv.id === activeConversationId ? 'bg-zinc-800 text-zinc-200' : 'text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300'
+                }`
+              },
+                React.createElement('span', { className: 'text-xs truncate flex-1' }, conv.title),
+                React.createElement('button', {
+                  onClick: e => { e.stopPropagation(); deleteConversation(conv.id); },
+                  className: 'opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 ml-1 text-sm leading-none transition'
+                }, '×')
+              )
             )
           )
-        )
-      ),
+        ),
 
-      React.createElement('div', { className: 'flex-1 flex overflow-hidden' },
-        (activeTab === 'tree' || activeTab === 'memory') && React.createElement(window.LeftPane, {
-          memory: projectMemory, fileTree, activeFilePath, onFileClick: loadFile
-        }),
-        activeTab === 'editor' && React.createElement(window.EditorPane, {
-          filePath: activeFilePath, content: activeFileContent,
-          onChange: setActiveFileContent, onCommit: () => commitChange(),
-          isLoading, activeRepo: currentRepo, activeBranch: currentBranch
-        }),
-        activeTab === 'tasks' && React.createElement(window.TaskBoard, {
-          tasks: orchestratorTasks, onRefresh: refreshTasks, isLoading
-        }),
-        activeTab === 'chat' && React.createElement(window.ChatPane, {
-          messages, inputPrompt, setInputPrompt,
-          uploadedContext, setUploadedContext,
-          isLoading, onSend: sendMessage, onFileUpload: handleFileUpload,
-          showCmdHints,
-          onCmdHintClick: cmd => { setInputPrompt(cmd + ' '); if (inputRef.current) inputRef.current.focus(); },
-          chatScrollRef, inputRef,
-          streamingMessage, streamingReasoning,
-          conversationId: activeConversationId,
-        })
+        // Tabs area
+        React.createElement('div', { className: 'flex-1 flex overflow-hidden' },
+          (activeTab === 'tree' || activeTab === 'memory') && React.createElement(window.LeftPane, {
+            memory: projectMemory, fileTree, activeFilePath, onFileClick: loadFile
+          }),
+          activeTab === 'editor' && React.createElement(window.EditorPane, {
+            filePath: activeFilePath, content: activeFileContent,
+            onChange: setActiveFileContent, onCommit: () => commitChange(),
+            isLoading, activeRepo: currentRepo, activeBranch: currentBranch
+          }),
+          activeTab === 'tasks' && React.createElement(window.TaskBoard, {
+            tasks: orchestratorTasks, onRefresh: refreshTasks, isLoading
+          }),
+          activeTab === 'chat' && React.createElement(window.ChatPane, {
+            messages, inputPrompt, setInputPrompt,
+            uploadedContext, setUploadedContext,
+            isLoading, onSend: sendMessage, onFileUpload: handleFileUpload,
+            showCmdHints,
+            onCmdHintClick: cmd => { setInputPrompt(cmd + ' '); if (inputRef.current) inputRef.current.focus(); },
+            chatScrollRef, inputRef,
+            streamingMessage, streamingReasoning,
+            conversationId: activeConversationId,
+          })
+        )
       )
     )
   );
