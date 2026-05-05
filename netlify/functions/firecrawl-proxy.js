@@ -11,40 +11,40 @@ exports.handler = async (event) => {
 
   try {
     const { query, count = 5 } = JSON.parse(event.body);
-    
+
+    // Firecrawl /v1/search expects: query, limit, scrapeOptions (optional)
+    const requestBody = {
+      query,
+      limit: count,
+      // scrapeOptions: { formats: ['markdown'] }   // uncomment if you want full page content
+    };
+
     const response = await fetch('https://api.firecrawl.dev/v1/search', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        query,
-        pageOptions: {
-          fetchPageContent: false,   // set true if you want full page text (costs more)
-          limit: count
-        }
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     const data = await response.json();
     console.log('Firecrawl response status:', response.status);
-    console.log('Firecrawl response data:', JSON.stringify(data).substring(0, 200));
 
     if (!response.ok) {
-      console.error('Firecrawl API error:', data);
+      console.error('Firecrawl API error:', JSON.stringify(data).substring(0, 300));
       return {
         statusCode: response.status,
         body: JSON.stringify({ error: data }),
       };
     }
 
-    // Firecrawl returns { success: true, data: [...] }
+    // Firecrawl v1/search returns: { success: true, data: [...] }
     const results = (data.data || []).map(page => ({
       title: page.title || '',
       url: page.url,
-      snippet: page.content ? page.content.substring(0, 300) : '',   // first 300 chars as snippet
-      datePublished: null,           // Firecrawl doesn't provide dates
+      snippet: page.description || page.content?.substring(0, 300) || '',
+      datePublished: null,
       siteName: extractDomain(page.url),
       source: 'firecrawl'
     }));
