@@ -1,4 +1,7 @@
 window.SummaryService = (() => {
+    // ── Throttle: only re-summarise after this many NEW user turns ──
+    const TURNS_BETWEEN_SUMMARIES = 4;
+
     function estimateTokenCount(text) {
         return Math.ceil(text.length / 4);
     }
@@ -6,7 +9,7 @@ window.SummaryService = (() => {
     async function generateSummary(messages, existingSummary = null) {
         if (!messages || messages.length === 0) return null;
 
-        const recentMessages = messages.slice(-6);
+        const recentMessages = messages.slice(-8);
         const conversationText = recentMessages
             .map(m => `${m.role.toUpperCase()}: ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`)
             .join('\n');
@@ -15,9 +18,8 @@ window.SummaryService = (() => {
             ? `Previous summary: ${existingSummary}\n\nNew conversation:\n${conversationText}\n\nUpdate the summary (max 120 words). Preserve task numbers, file paths, and user preferences exactly. Output as 3-5 bullet points.`
             : `Summarise this conversation concisely (max 120 words).\n\n${conversationText}\n\nOutput 3-5 bullet points: Goal, Actions, Pending decisions, Important details.`;
 
-        // Read current provider and model from localStorage instead of hardcoding
         const currentProvider = localStorage.getItem('PROVIDER') || 'deepseek';
-        const currentModel = localStorage.getItem('OR_MODEL') || 'deepseek-chat';
+        const currentModel = localStorage.getItem('OR_MODEL') || 'deepseek-v4-flash';
 
         try {
             const result = await window.LLMProvider.chatCompletion({
@@ -35,6 +37,11 @@ window.SummaryService = (() => {
         }
     }
 
+    /**
+     * Decide whether to summarise based on trigger and turn delta.
+     * - 'manual' always summarises
+     * - 'command' / 'auto' only if enough new turns have accumulated
+     */
     async function maybeSummarise(conversationId, messages, triggerEvent = 'auto') {
         if (!conversationId || !messages || messages.length === 0) return null;
 
@@ -45,8 +52,7 @@ window.SummaryService = (() => {
 
         const shouldSummarise =
             triggerEvent === 'manual' ||
-            triggerEvent === 'command' ||
-            (triggerEvent === 'auto' && newTurns >= 1);
+            (newTurns >= TURNS_BETWEEN_SUMMARIES);
 
         if (!shouldSummarise) return null;
 
