@@ -15,4 +15,7 @@ window.COMMANDS = [
     { cmd: '/autopilot', desc: 'Run full plan → execute → review loop without prompting' },
     { cmd: '/manual', desc: 'Return to step-by-step confirmation mode' },
     { cmd: '/tasks', desc: 'List all tasks in the current milestone' },
+    { cmd: '/remember', desc: 'Save a personal preference (Usage: /remember <preference>)' },
+    { cmd: '/forgetme', desc: 'Clear all personal preferences' },
+    { cmd: '/myprefs',  desc: 'Show all saved preferences' },
 ];
