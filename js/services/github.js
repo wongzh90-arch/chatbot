@@ -27,3 +27,15 @@ async function commitFile(repo, branch, path, content, sha, message, token) {
   }
   return await res.json();
 }
+
+async function resetBranch(repo, branch, sourceBranch, token) {
+  const refRes = await fetch(`https://api.github.com/repos/${repo}/git/ref/heads/${sourceBranch}`, { headers: headers(token) });
+  const sha = (await refRes.json()).object.sha;
+  const updateRes = await fetch(`https://api.github.com/repos/${repo}/git/refs/heads/${branch}`, {
+    method: 'PATCH',
+    headers: headers(token),
+    body: JSON.stringify({ sha, force: true }),
+  });
+  if (!updateRes.ok) throw new Error(`Reset failed: ${await updateRes.text()}`);
+}
+window.GitHubService.resetBranch = resetBranch;
