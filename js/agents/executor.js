@@ -93,7 +93,7 @@ Respond with ONLY the updated file content wrapped in:
             messages: [{ role: 'user', content: 'Implement this.' }],
             systemPrompt: sysPrompt,
             userContent,
-            thinkingMode: false, // always off for executor to save time
+            thinkingMode: false,
             reasoningEffort,
         });
 
@@ -123,6 +123,9 @@ Respond with ONLY the updated file content wrapped in:
                 if (setActiveTab) setActiveTab('editor');
             }
         }
+
+        // Mark as DONE here so the next loop iteration skips it
+        await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'DONE', githubToken);
 
         return { ...todoTask, issueNumber: todoTask.number };
     }
