@@ -92,13 +92,13 @@
         const PASSWORD_HASH = 'c1366f39d8847f3659cdd75c4d9d4fe3f3c0f77782ffe2c41c995e844d68521f';
 
         (function() {
-            const token = sessionStorage.getItem('auth_token');
-            if (token === PASSWORD_HASH) { showApp(); return; }
-
             const gate = document.getElementById('login-gate');
             const form = document.getElementById('login-form');
             const input = document.getElementById('password-input');
 
+            const token = sessionStorage.getItem('auth_token');
+            if (token === PASSWORD_HASH) { showApp(); return; }
+            
             form.addEventListener('submit', async function(e) {
                 e.preventDefault();
                 const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input.value));
