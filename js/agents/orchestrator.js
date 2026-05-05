@@ -1,37 +1,50 @@
 window.Orchestrator = (() => {
-    let state = {
+    // ── Hard caps to prevent runaway loops ──
+    const MAX_EXECUTE_ITERATIONS = 20;   // per run
+    const MAX_REVIEW_CYCLES      = 3;    // review → execute → review max 3 times
+    const TASK_RETRY_LIMIT       = 2;    // each task retried at most twice
+
+    const initialState = () => ({
         mode: 'manual',
-        phase: 'idle',
+        phase: 'idle',          // idle | planning | executing | reviewing | done | error
         milestone: null,
         milestoneClosed: false,
         tasks: [],
         goal: null,
         lastExecutedTask: null,
-    };
+        executeIterations: 0,
+        reviewCycles: 0,
+        taskRetries: {},        // { [taskNumber]: count }
+        runId: null,            // unique per run, used to detect stale callbacks
+    });
+
+    let state = initialState();
 
     function getState() { return { ...state }; }
     function setMode(mode) { state.mode = mode; }
+
     function resetState() {
-        state = {
-            mode: state.mode,
-            phase: 'idle',
-            milestone: null,
-            milestoneClosed: false,
-            tasks: [],
-            goal: null,
-            lastExecutedTask: null,
-        };
+        const prevMode = state.mode;
+        state = initialState();
+        state.mode = prevMode;
+        state.runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     }
 
+    function isTerminal() {
+        return state.phase === 'done' || state.phase === 'error' || state.phase === 'idle';
+    }
+
+    // ─── PLAN ────────────────────────────────────────────────────
     async function runPlanPhase({
         goal, repo, branch, githubToken,
         provider, model, thinkingMode, reasoningEffort,
         fileTree, addToast, setMessages,
         projectMemory, userMemory, systemPromptOverride
     }) {
+        // Always start from a clean slate when planning a new goal
+        resetState();
         state.phase = 'planning';
         state.goal = goal;
-        state.milestoneClosed = false;
 
         setMessages(prev => [...prev,
             { role: 'user', content: `/plan ${goal}` },
@@ -47,7 +60,7 @@ window.Orchestrator = (() => {
             });
 
             if (result.error) {
-                state.phase = 'idle';
+                state.phase = 'error';
                 setMessages(prev => [...prev, {
                     role: 'assistant',
                     content: `❌ Planning failed: ${result.message || result.error}`
@@ -59,7 +72,6 @@ window.Orchestrator = (() => {
             state.tasks = result.tasks;
 
             const planSummary = `📋 **Milestone:** ${result.milestone.title}\n\n${result.analysis || ''}\n\n**Tasks:**\n${result.tasks.map((t, i) => `${i+1}. ${t.title} [#${t.issueNumber}](${t.html_url})`).join('\n')}`;
-
             setMessages(prev => [...prev, { role: 'assistant', content: planSummary }]);
 
             if (state.mode === 'autopilot') {
@@ -76,7 +88,7 @@ window.Orchestrator = (() => {
             state.phase = 'awaiting_approval';
             return { needsApproval: true };
         } catch (err) {
-            state.phase = 'idle';
+            state.phase = 'error';
             addToast(`Plan phase crashed: ${err.message}`, 'error');
             setMessages(prev => [...prev, {
                 role: 'assistant',
@@ -86,6 +98,7 @@ window.Orchestrator = (() => {
         }
     }
 
+    // ─── EXECUTE ─────────────────────────────────────────────────
     async function runExecutePhase({
         repo, branch, githubToken,
         provider, model, thinkingMode, reasoningEffort,
@@ -93,8 +106,21 @@ window.Orchestrator = (() => {
         addToast, setMessages,
         setActiveFileContent, setActiveFilePath, setActiveTab
     }) {
-        if (state.phase === 'done') {
-            return { done: true };
+        // Guards
+        if (!state.milestone) {
+            addToast('No active milestone. Run /plan first.', 'error');
+            return { error: true, message: 'No milestone in state' };
+        }
+        if (state.phase === 'done') return { done: true };
+
+        // Iteration cap
+        state.executeIterations += 1;
+        if (state.executeIterations > MAX_EXECUTE_ITERATIONS) {
+            state.phase = 'error';
+            const msg = `Stopped: hit max execute iterations (${MAX_EXECUTE_ITERATIONS}). Some tasks may have failed repeatedly. Check the task board.`;
+            addToast(msg, 'error');
+            setMessages(prev => [...prev, { role: 'assistant', content: `🛑 ${msg}` }]);
+            return { error: true, message: msg };
         }
 
         state.phase = 'executing';
@@ -105,8 +131,14 @@ window.Orchestrator = (() => {
             );
             state.tasks = allTasks;
 
+            // Filter: don't retry tasks that have exceeded retry limit
+            const eligibleTasks = allTasks.filter(t => {
+                const retries = state.taskRetries[t.number] || 0;
+                return retries < TASK_RETRY_LIMIT;
+            });
+
             const result = await window.ExecutorAgent.executeNextTask({
-                tasks: allTasks,
+                tasks: eligibleTasks,
                 repo, branch, githubToken,
                 provider, model, thinkingMode, reasoningEffort,
                 projectMemory, userMemory, systemPromptOverride,
@@ -114,8 +146,21 @@ window.Orchestrator = (() => {
                 setActiveFileContent, setActiveFilePath, setActiveTab
             });
 
+            // No eligible task found → either all done or all over retry limit
             if (!result) {
-                addToast('All tasks done. Moving to review...', 'info');
+                const stillTodo = eligibleTasks.filter(t =>
+                    t.labels.some(l => l.name === 'task:todo' || l.name === 'task:in_progress')
+                );
+                if (stillTodo.length > 0) {
+                    // Tasks remain but all blocked or unretryable
+                    state.phase = 'error';
+                    const msg = `${stillTodo.length} task(s) could not be executed (blocked or exceeded retry limit). Check the task board.`;
+                    addToast(msg, 'warning');
+                    setMessages(prev => [...prev, { role: 'assistant', content: `⚠️ ${msg}` }]);
+                    return { error: true, partial: true, message: msg };
+                }
+                // Genuinely all done → review
+                addToast('All eligible tasks done. Moving to review...', 'info');
                 return await runReviewPhase({
                     repo, branch, githubToken,
                     provider, model, thinkingMode, reasoningEffort,
@@ -124,16 +169,25 @@ window.Orchestrator = (() => {
                 });
             }
 
-            setMessages(prev => [...prev, {
-                role: 'assistant',
-                content: `🔨 Executed **${result.title}** [#${result.issueNumber || result.number}]`
-            }]);
-
-            state.lastExecutedTask = result;
+            // Track outcome
+            if (result.failed) {
+                state.taskRetries[result.taskNumber] = (state.taskRetries[result.taskNumber] || 0) + 1;
+                const retries = state.taskRetries[result.taskNumber];
+                setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: `⚠️ Task **${result.title}** [#${result.taskNumber}] failed (attempt ${retries}/${TASK_RETRY_LIMIT}): ${result.reason || 'no code produced'}`
+                }]);
+            } else {
+                setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: `🔨 Executed **${result.title}** [#${result.issueNumber || result.number}]`
+                }]);
+                state.lastExecutedTask = result;
+            }
 
             if (state.mode === 'autopilot') {
-                addToast('🤖 Autopilot: continuing to next task...', 'info');
-                await new Promise(r => setTimeout(r, 1000));
+                addToast('🤖 Autopilot: continuing...', 'info');
+                await new Promise(r => setTimeout(r, 800));
                 return await runExecutePhase({
                     repo, branch, githubToken,
                     provider, model, thinkingMode, reasoningEffort,
@@ -145,7 +199,7 @@ window.Orchestrator = (() => {
 
             return { needsApproval: true, lastTask: result };
         } catch (err) {
-            state.phase = 'idle';
+            state.phase = 'error';
             addToast(`Execution phase crashed: ${err.message}`, 'error');
             setMessages(prev => [...prev, {
                 role: 'assistant',
@@ -155,14 +209,28 @@ window.Orchestrator = (() => {
         }
     }
 
+    // ─── REVIEW ──────────────────────────────────────────────────
     async function runReviewPhase({
         repo, branch, githubToken,
         provider, model, thinkingMode, reasoningEffort,
         fileTree, addToast, setMessages,
         projectMemory, userMemory, systemPromptOverride
     }) {
-        if (state.phase === 'done') {
-            return { done: true };
+        // Guards
+        if (!state.milestone) {
+            addToast('No active milestone to review.', 'warning');
+            return { error: true, message: 'No milestone in state' };
+        }
+        if (state.phase === 'done') return { done: true };
+
+        // Cap review/execute cycles
+        state.reviewCycles += 1;
+        if (state.reviewCycles > MAX_REVIEW_CYCLES) {
+            state.phase = 'error';
+            const msg = `Stopped: hit max review cycles (${MAX_REVIEW_CYCLES}). Some issues remain unresolved.`;
+            addToast(msg, 'error');
+            setMessages(prev => [...prev, { role: 'assistant', content: `🛑 ${msg}` }]);
+            return { error: true, message: msg };
         }
 
         state.phase = 'reviewing';
@@ -172,9 +240,22 @@ window.Orchestrator = (() => {
                 repo, state.milestone.number, githubToken
             );
 
+            // Don't bother reviewing if nothing was actually done
+            const doneCount = allTasks.filter(t =>
+                t.labels.some(l => l.name === 'task:done')
+            ).length;
+
+            if (doneCount === 0) {
+                state.phase = 'error';
+                const msg = 'No completed tasks to review. Execution likely failed for all tasks.';
+                addToast(msg, 'warning');
+                setMessages(prev => [...prev, { role: 'assistant', content: `⚠️ ${msg}` }]);
+                return { error: true, message: msg };
+            }
+
             setMessages(prev => [...prev, {
                 role: 'assistant',
-                content: '🔍 Starting review of all completed tasks...'
+                content: `🔍 Reviewing ${doneCount} completed task(s) (cycle ${state.reviewCycles}/${MAX_REVIEW_CYCLES})...`
             }]);
 
             const result = await window.ReviewerAgent.reviewCompletedTasks({
@@ -192,13 +273,27 @@ window.Orchestrator = (() => {
                     content: '✅ **All tasks reviewed and passed!** Ready to merge.'
                 }]);
 
+                // Idempotent close — only fire once per run
                 if (state.milestone && !state.milestoneClosed) {
                     state.milestoneClosed = true;
-                    await window.TaskManager.closeMilestone(repo, state.milestone.number, githubToken);
-                    addToast('🎉 Milestone complete!', 'success');
+                    try {
+                        await window.TaskManager.closeMilestone(repo, state.milestone.number, githubToken);
+                        addToast('🎉 Milestone complete!', 'success');
+                    } catch (e) {
+                        // Already closed or transient — log but don't crash the run
+                        console.warn('Milestone close failed (likely already closed):', e.message);
+                    }
                 }
-
                 return { done: true };
+            }
+
+            // Issues found → back to execute, but only if we haven't capped
+            if (state.reviewCycles >= MAX_REVIEW_CYCLES) {
+                state.phase = 'error';
+                const msg = `Review found ${result.issuesFound} issue(s) but cycle limit reached. Manual intervention needed.`;
+                addToast(msg, 'warning');
+                setMessages(prev => [...prev, { role: 'assistant', content: `🛑 ${msg}` }]);
+                return { error: true, message: msg };
             }
 
             state.phase = 'executing';
@@ -206,7 +301,6 @@ window.Orchestrator = (() => {
                 role: 'assistant',
                 content: `⚠️ **${result.issuesFound} task(s) need fixes.** Re-executing...`
             }]);
-            addToast('Returning to execution for fixes...', 'info');
 
             if (state.mode === 'autopilot') {
                 return await runExecutePhase({
@@ -220,7 +314,7 @@ window.Orchestrator = (() => {
 
             return { needsApproval: true, issuesFound: result.issuesFound };
         } catch (err) {
-            state.phase = 'idle';
+            state.phase = 'error';
             addToast(`Review phase crashed: ${err.message}`, 'error');
             setMessages(prev => [...prev, {
                 role: 'assistant',
@@ -231,7 +325,7 @@ window.Orchestrator = (() => {
     }
 
     return {
-        getState, setMode, resetState,
+        getState, setMode, resetState, isTerminal,
         runPlanPhase, runExecutePhase, runReviewPhase,
     };
 })();
