@@ -15,7 +15,9 @@ window.Orchestrator = (() => {
     }
 
     async function runPlanPhase({
-        goal, repo, branch, githubToken, openRouterKey, model, fileTree, addToast, setMessages,
+        goal, repo, branch, githubToken,
+        provider, model, thinkingMode, reasoningEffort,
+        fileTree, addToast, setMessages,
         projectMemory, userMemory, systemPromptOverride
     }) {
         state.phase = 'planning';
@@ -27,7 +29,9 @@ window.Orchestrator = (() => {
         ]);
 
         const result = await window.PlannerAgent.analyzeAndPlan({
-            goal, repo, branch, githubToken, openRouterKey, model, fileTree, addToast,
+            goal, repo, branch, githubToken,
+            provider, model, thinkingMode, reasoningEffort,
+            fileTree, addToast,
             projectMemory, userMemory, systemPromptOverride
         });
 
@@ -46,7 +50,13 @@ window.Orchestrator = (() => {
 
         if (state.mode === 'autopilot') {
             addToast('🤖 Autopilot: proceeding to execution...', 'info');
-            return await runExecutePhase({ repo, branch, githubToken, openRouterKey, model, projectMemory, userMemory, systemPromptOverride, addToast, setMessages, setActiveFileContent: null, setActiveFilePath: null, setActiveTab: null });
+            return await runExecutePhase({
+                repo, branch, githubToken,
+                provider, model, thinkingMode, reasoningEffort,
+                projectMemory, userMemory, systemPromptOverride,
+                addToast, setMessages,
+                setActiveFileContent: null, setActiveFilePath: null, setActiveTab: null
+            });
         }
 
         state.phase = 'awaiting_approval';
@@ -54,7 +64,9 @@ window.Orchestrator = (() => {
     }
 
     async function runExecutePhase({
-        repo, branch, githubToken, openRouterKey, model, projectMemory, userMemory, systemPromptOverride,
+        repo, branch, githubToken,
+        provider, model, thinkingMode, reasoningEffort,
+        projectMemory, userMemory, systemPromptOverride,
         addToast, setMessages,
         setActiveFileContent, setActiveFilePath, setActiveTab
     }) {
@@ -65,14 +77,22 @@ window.Orchestrator = (() => {
 
         const result = await window.ExecutorAgent.executeNextTask({
             tasks: allTasks,
-            repo, branch, githubToken, openRouterKey, model, projectMemory, userMemory, systemPromptOverride, addToast,
+            repo, branch, githubToken,
+            provider, model, thinkingMode, reasoningEffort,
+            projectMemory, userMemory, systemPromptOverride,
+            addToast,
             setActiveFileContent, setActiveFilePath, setActiveTab
         });
 
         if (!result) {
             state.phase = 'reviewing';
             addToast('All tasks done. Moving to review...', 'info');
-            return await runReviewPhase({ repo, branch, githubToken, openRouterKey, model, fileTree: [], addToast, setMessages, projectMemory, userMemory, systemPromptOverride });
+            return await runReviewPhase({
+                repo, branch, githubToken,
+                provider, model, thinkingMode, reasoningEffort,
+                fileTree: [], addToast, setMessages,
+                projectMemory, userMemory, systemPromptOverride
+            });
         }
 
         setMessages(prev => [...prev, { role: 'assistant', content: `🔨 Executed **${result.title}** [#${result.issueNumber}]` }]);
@@ -83,14 +103,22 @@ window.Orchestrator = (() => {
 
         if (state.mode === 'autopilot') {
             addToast('🤖 Autopilot: continuing to next task...', 'info');
-            return await runExecutePhase({ repo, branch, githubToken, openRouterKey, model, projectMemory, userMemory, systemPromptOverride, addToast, setMessages, setActiveFileContent, setActiveFilePath, setActiveTab });
+            return await runExecutePhase({
+                repo, branch, githubToken,
+                provider, model, thinkingMode, reasoningEffort,
+                projectMemory, userMemory, systemPromptOverride,
+                addToast, setMessages,
+                setActiveFileContent: null, setActiveFilePath: null, setActiveTab: null
+            });
         }
 
         return { needsApproval: true, lastTask: result };
     }
 
     async function runReviewPhase({
-        repo, branch, githubToken, openRouterKey, model, fileTree, addToast, setMessages,
+        repo, branch, githubToken,
+        provider, model, thinkingMode, reasoningEffort,
+        fileTree, addToast, setMessages,
         projectMemory, userMemory, systemPromptOverride
     }) {
         state.phase = 'reviewing';
@@ -101,7 +129,9 @@ window.Orchestrator = (() => {
 
         const result = await window.ReviewerAgent.reviewCompletedTasks({
             tasks: allTasks,
-            repo, branch, githubToken, openRouterKey, model, fileTree, addToast,
+            repo, branch, githubToken,
+            provider, model, thinkingMode, reasoningEffort,
+            fileTree, addToast,
             projectMemory, userMemory, systemPromptOverride
         });
 
@@ -118,7 +148,13 @@ window.Orchestrator = (() => {
         addToast('Returning to execution for fixes...', 'info');
 
         if (state.mode === 'autopilot') {
-            return await runExecutePhase({ repo, branch, githubToken, openRouterKey, model, projectMemory, userMemory, systemPromptOverride, addToast, setMessages, setActiveFileContent: null, setActiveFilePath: null, setActiveTab: null });
+            return await runExecutePhase({
+                repo, branch, githubToken,
+                provider, model, thinkingMode, reasoningEffort,
+                projectMemory, userMemory, systemPromptOverride,
+                addToast, setMessages,
+                setActiveFileContent: null, setActiveFilePath: null, setActiveTab: null
+            });
         }
 
         return { needsApproval: true, issuesFound: result.issuesFound };
