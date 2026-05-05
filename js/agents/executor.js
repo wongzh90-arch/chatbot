@@ -4,6 +4,8 @@ window.ExecutorAgent = (() => {
         repo, branch, githubToken,
         openRouterKey, model,
         projectMemory,
+        userMemory,
+        systemPromptOverride,
         addToast,
         setActiveFileContent,
         setActiveFilePath,
@@ -28,15 +30,10 @@ window.ExecutorAgent = (() => {
 
         await window.TaskManager.updateTaskStatus(repo, unblockedTodo.number, 'IN_PROGRESS', githubToken);
 
-        const memoryStr = projectMemory.length
-            ? '\nPROJECT MEMORY:\n' + projectMemory.map((m, i) => `${i+1}. ${m}`).join('\n')
-            : '';
-
-        const sysPrompt = `You are an expert coding agent executing a single task.
+        let sysPrompt = `You are an expert coding agent executing a single task.
 Repo: ${repo} (branch: ${branch})
 Task: ${unblockedTodo.title}
 Task details: ${unblockedTodo.body || ''}
-${memoryStr}
 
 You have the following tools via XML tags:
 - <skill name="update_editor">NEW_CODE</skill> — overwrites the editor with complete file content
@@ -47,6 +44,24 @@ Instructions:
 2. When you have the context, produce the final code using <skill name="update_editor">...</skill>.
 3. The code must be COMPLETE — no placeholders or truncation.
 4. After updating the editor, explain what you changed and why.`;
+
+        // Override
+        if (systemPromptOverride && systemPromptOverride.trim()) {
+            sysPrompt = systemPromptOverride + '\n\n' + sysPrompt;
+        }
+
+        // User memory
+        if (userMemory && userMemory.length) {
+            const context = unblockedTodo.title + ' ' + (unblockedTodo.body || '');
+            const relevantPrefs = window.ContextMatcher.selectRelevant(userMemory, context, 3);
+            if (relevantPrefs.length) {
+                sysPrompt += '\n\nRELEVANT USER PREFERENCES:\n' + relevantPrefs.map((p, i) => `${i+1}. ${p}`).join('\n');
+            }
+        }
+
+        if (projectMemory && projectMemory.length) {
+            sysPrompt += '\n\nPROJECT MEMORY:\n' + projectMemory.map((m, i) => `${i+1}. ${m}`).join('\n');
+        }
 
         const userContent = `Execute this task: ${unblockedTodo.title}\n\n${unblockedTodo.body || ''}`;
 
