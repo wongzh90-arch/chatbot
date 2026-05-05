@@ -3,6 +3,7 @@ window.Orchestrator = (() => {
         mode: 'manual',
         phase: 'idle',
         milestone: null,
+        milestoneClosed: false,
         tasks: [],
         goal: null,
         lastExecutedTask: null,
@@ -11,7 +12,15 @@ window.Orchestrator = (() => {
     function getState() { return { ...state }; }
     function setMode(mode) { state.mode = mode; }
     function resetState() {
-        state = { mode: state.mode, phase: 'idle', milestone: null, tasks: [], goal: null, lastExecutedTask: null };
+        state = {
+            mode: state.mode,
+            phase: 'idle',
+            milestone: null,
+            milestoneClosed: false,
+            tasks: [],
+            goal: null,
+            lastExecutedTask: null,
+        };
     }
 
     async function runPlanPhase({
@@ -22,6 +31,7 @@ window.Orchestrator = (() => {
     }) {
         state.phase = 'planning';
         state.goal = goal;
+        state.milestoneClosed = false;
 
         setMessages(prev => [...prev,
             { role: 'user', content: `/plan ${goal}` },
@@ -38,7 +48,7 @@ window.Orchestrator = (() => {
         if (result.error) {
             state.phase = 'idle';
             setMessages(prev => [...prev, { role: 'assistant', content: `❌ Planning failed: ${result.message || result.error}` }]);
-            return null;
+            return { error: true, message: result.message || result.error };
         }
 
         state.milestone = result.milestone;
@@ -70,6 +80,11 @@ window.Orchestrator = (() => {
         addToast, setMessages,
         setActiveFileContent, setActiveFilePath, setActiveTab
     }) {
+        // Guard: don't execute if already done
+        if (state.phase === 'done') {
+            return { done: true };
+        }
+
         state.phase = 'executing';
 
         const allTasks = await window.TaskManager.getTasksByMilestone(repo, state.milestone.number, githubToken);
@@ -85,7 +100,7 @@ window.Orchestrator = (() => {
         });
 
         if (!result) {
-            state.phase = 'reviewing';
+            // No more tasks — move to review
             addToast('All tasks done. Moving to review...', 'info');
             return await runReviewPhase({
                 repo, branch, githubToken,
@@ -95,9 +110,12 @@ window.Orchestrator = (() => {
             });
         }
 
-        setMessages(prev => [...prev, { role: 'assistant', content: `🔨 Executed **${result.title}** [#${result.issueNumber}]` }]);
+        setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `🔨 Executed **${result.title}** [#${result.issueNumber || result.number}]`
+        }]);
 
-        await window.TaskManager.updateTaskStatus(repo, result.issueNumber, 'DONE', githubToken);
+        await window.TaskManager.updateTaskStatus(repo, result.number, 'DONE', githubToken);
 
         state.lastExecutedTask = result;
 
@@ -121,6 +139,11 @@ window.Orchestrator = (() => {
         fileTree, addToast, setMessages,
         projectMemory, userMemory, systemPromptOverride
     }) {
+        // Guard: don't review if already done
+        if (state.phase === 'done') {
+            return { done: true };
+        }
+
         state.phase = 'reviewing';
 
         const allTasks = await window.TaskManager.getTasksByMilestone(repo, state.milestone.number, githubToken);
@@ -137,14 +160,26 @@ window.Orchestrator = (() => {
 
         if (result.issuesFound === 0) {
             state.phase = 'done';
-            setMessages(prev => [...prev, { role: 'assistant', content: '✅ **All tasks reviewed and passed!** Ready to merge.' }]);
-            await window.TaskManager.closeMilestone(repo, state.milestone.number, githubToken);
-            addToast('🎉 Milestone complete!', 'success');
+            setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: '✅ **All tasks reviewed and passed!** Ready to merge.'
+            }]);
+
+            // Guard: only close milestone once
+            if (state.milestone && !state.milestoneClosed) {
+                state.milestoneClosed = true;
+                await window.TaskManager.closeMilestone(repo, state.milestone.number, githubToken);
+                addToast('🎉 Milestone complete!', 'success');
+            }
+
             return { done: true };
         }
 
         state.phase = 'executing';
-        setMessages(prev => [...prev, { role: 'assistant', content: `⚠️ **${result.issuesFound} task(s) need fixes.** Re-executing...` }]);
+        setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `⚠️ **${result.issuesFound} task(s) need fixes.** Re-executing...`
+        }]);
         addToast('Returning to execution for fixes...', 'info');
 
         if (state.mode === 'autopilot') {
