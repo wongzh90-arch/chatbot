@@ -120,7 +120,7 @@ function App() {
     const [activeFileContent, setActiveFileContent] = useState('');
     const [fileSha, setFileSha] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [activeTab, setActiveTab] = useState('editor');
+    const [activeTab, setActiveTab] = useState('chat');
     const [toasts, setToasts] = useState([]);
     const [showCmdHints, setShowCmdHints] = useState(false);
 
