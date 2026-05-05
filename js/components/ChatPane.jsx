@@ -22,7 +22,7 @@ window.ChatPane = ({
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 144) + 'px'; // max ~6 lines
+    el.style.height = Math.min(el.scrollHeight, 144) + 'px';
   }, [inputPrompt]);
 
   const handleKeyDown = (e) => {
@@ -41,14 +41,13 @@ window.ChatPane = ({
   }
 
   return React.createElement('div', {
-    // Full width on mobile, fixed sidebar on desktop
-    className: 'flex flex-1 lg:w-auto lg:max-w-[480px] lg:min-w-[380px] flex-col bg-zinc-950 relative border-l border-zinc-900'
+    className: 'flex flex-1 flex-col bg-zinc-950 border-l border-zinc-900 h-full min-h-0 overflow-hidden'
   },
 
     // Header
     React.createElement('div', { className: 'px-4 py-2.5 border-b border-zinc-900 bg-zinc-950 shrink-0 flex items-center gap-2' },
       React.createElement('div', {
-        className: `w-2 h-2 rounded-full shrink-0 ${isLoading ? 'bg-amber-400 animate-pulse' : 'bg-green-500'}`
+        className: `w-2 h-2 rounded-full shrink-0 ${isLoading ? 'bg-amber-400 animate-pulse' : 'bg-green-5'}`
       }),
       React.createElement('span', { className: 'font-mono font-bold text-xs uppercase text-zinc-500 tracking-widest' },
         isLoading ? 'Processing…' : 'Terminal'
@@ -58,10 +57,10 @@ window.ChatPane = ({
       )
     ),
 
-    // Messages — grows to fill space, scrollable
+    // Messages – scrollable, no bottom padding that hides input
     React.createElement('div', {
       ref: chatScrollRef,
-      className: 'flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 pb-40 custom-scrollbar'
+      className: 'flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 custom-scrollbar'
     },
       allMessages.map((m, i) => React.createElement(MessageBubble, { key: i, message: m })),
 
@@ -78,8 +77,8 @@ window.ChatPane = ({
       )
     ),
 
-    // ── Input area ────────────────────────────────────────────────────────
-    React.createElement('div', { className: 'absolute bottom-0 left-0 right-0 bg-zinc-950/95 backdrop-blur border-t border-zinc-900' },
+    // ── Input area – always visible (not absolute) ──
+    React.createElement('div', { className: 'border-t border-zinc-900 bg-zinc-950/95 backdrop-blur flex-shrink-0' },
 
       // Command hints
       showCmdHints && React.createElement('div', {
@@ -167,7 +166,7 @@ window.ChatPane = ({
   );
 };
 
-// ─── Message Bubble ───────────────────────────────────────────────────────────
+// ─── Message Bubble (unchanged) ───────────────────────────────────────────
 function MessageBubble({ message: m }) {
   const isUser = m.role === 'user';
   const isSearchResult = !isUser && m.searchResults && m.searchResults.length > 0;
@@ -205,7 +204,7 @@ function MessageBubble({ message: m }) {
   );
 }
 
-// ─── Rich Search Results with AI Synthesis ───────────────────────────────────
+// ─── Rich Search Results (unchanged) ──────────────────────────────────────
 function SearchResultsBlock({ results, query, synthesis }) {
   const [expanded, setExpanded] = React.useState(null);
 
@@ -218,7 +217,7 @@ function SearchResultsBlock({ results, query, synthesis }) {
       React.createElement('span', { className: 'text-[10px] text-zinc-600' }, `${results.length} results`)
     ),
 
-    // AI synthesis (if available)
+    // AI synthesis
     synthesis && React.createElement('div', {
       className: 'bg-amber-500/8 border border-amber-500/20 rounded-xl px-3 py-2.5 mb-3'
     },
@@ -246,13 +245,11 @@ function SearchResultsBlock({ results, query, synthesis }) {
             }, i + 1),
 
             React.createElement('div', { className: 'flex-1 min-w-0' },
-              // Title
               React.createElement('a', {
                 href: r.url, target: '_blank', rel: 'noopener noreferrer',
                 onClick: e => e.stopPropagation(),
                 className: 'font-medium text-zinc-200 text-xs sm:text-sm hover:text-amber-400 transition block leading-snug mb-1'
               }, r.title),
-              // Domain + date
               React.createElement('div', { className: 'flex items-center gap-2' },
                 React.createElement('span', { className: 'text-[10px] text-zinc-500 font-mono truncate' },
                   window.WebSearchService.extractDomain(r.url)
