@@ -1,35 +1,35 @@
 window.WebSearchService = (() => {
 
-  async function langSearch(query, count = 5) {
+  /**
+   * Search the web using Firecrawl (via Netlify proxy).
+   * @param {string} query
+   * @param {object} options - { count: number }
+   * @returns {Promise<Array<{title, url, snippet, datePublished, siteName}>>}
+   */
+  async function search(query, options = {}) {
+    const count = options.count || 5;
+
     try {
-      const res = await fetch('/.netlify/functions/langsearch-proxy', {
+      const res = await fetch('/.netlify/functions/firecrawl-proxy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, freshness: 'noLimit', summary: true, count })
+        body: JSON.stringify({ query, count }),
       });
 
       if (!res.ok) {
         const errorText = await res.text();
-        throw new Error(`LangSearch proxy error ${res.status}: ${errorText}`);
+        throw new Error(`Firecrawl proxy error ${res.status}: ${errorText}`);
       }
 
-      const data = await res.json();
-      const rawResults = data?.data?.webPages?.value || [];
-
-      return rawResults.map(r => ({
-        title: r.name || r.title || '',
-        url: r.url || r.link || '',
-        snippet: r.snippet || r.summary || r.content || '',
-        datePublished: r.datePublished || r.date || null,
-        siteName: r.siteName || extractDomain(r.url || r.link || ''),
-        source: 'langsearch'
-      }));
+      const results = await res.json();
+      return results;
     } catch (e) {
-      console.warn('LangSearch proxy failed:', e.message);
+      console.warn('Firecrawl proxy failed:', e.message);
       return [];
     }
   }
 
+  /** Extract domain from a URL */
   function extractDomain(url) {
     try {
       return new URL(url).hostname.replace('www.', '');
@@ -38,12 +38,7 @@ window.WebSearchService = (() => {
     }
   }
 
-  async function search(query, options = {}) {
-    const { count = 5 } = options;
-    return await langSearch(query, count);
-  }
-
-  // Returns structured data for rich UI rendering
+  /** Format results for rich UI rendering */
   function formatForContext(results) {
     if (!results || results.length === 0) return 'No web results found.';
     return results
@@ -51,7 +46,7 @@ window.WebSearchService = (() => {
       .join('\n\n');
   }
 
-  // Returns JSON string for AI context
+  /** Format results for AI context (used by synthesis) */
   function formatForAI(results) {
     if (!results || results.length === 0) return 'No web results found.';
     return results
@@ -59,5 +54,5 @@ window.WebSearchService = (() => {
       .join('\n\n---\n\n');
   }
 
-  return { search, langSearch, formatForContext, formatForAI, extractDomain };
+  return { search, formatForContext, formatForAI, extractDomain };
 })();
