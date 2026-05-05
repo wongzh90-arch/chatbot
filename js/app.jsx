@@ -393,6 +393,105 @@ function App() {
         await window.SummaryService.maybeSummarise(activeConversationId, messages, 'command');
         return true;
       }
+      case '/rollback':
+  if (!currentRepo || !githubToken) {
+    addToast('Missing repo or token', 'error');
+    return true;
+  }
+  try {
+    await window.GitHubService.resetBranch(currentRepo, currentBranch, 'main', githubToken);
+    addToast('Branch reset to main', 'success');
+    await fetchFileTree();
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: '↩️ Branch has been reset to `main`. All uncommitted changes on this branch are lost.'
+    }]);
+  } catch (e) {
+    addToast(e.message, 'error');
+  }
+  return true;
+
+case '/self-improve':
+  if (!args) { addToast('Describe what to improve.', 'error'); return true; }
+  if (window.selfImproveRunning) {
+    addToast('Self‑improvement already in progress. Wait or refresh.', 'warning');
+    return true;
+  }
+  window.selfImproveRunning = true;
+
+  const slug = args.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
+  const newBranch = `self-improve/${Date.now()}-${slug}`;
+  const originalRepo = currentRepo;
+  const originalBranch = currentBranch;
+
+  setMessages(prev => [...prev, { role: 'user', content: `/self-improve ${args}` }]);
+
+  try {
+    addToast(`🌿 Creating branch ${newBranch}...`, 'info');
+    await window.GitHubService.createBranch(originalRepo, 'main', newBranch, githubToken);
+    
+    // Switch UI to new branch
+    setCurrentBranch(newBranch);
+    await new Promise(r => setTimeout(r, 500));
+    await fetchFileTree();
+
+    // Store original orchestration mode, enable autopilot
+    const prevMode = window.Orchestrator.getState().mode;
+    window.Orchestrator.setMode('autopilot');
+
+    // Plan
+    addToast('📋 Planning...', 'info');
+    const planResult = await window.Orchestrator.runPlanPhase({
+      goal: args, repo: originalRepo, branch: newBranch, githubToken,
+      provider, model: selectedModel, thinkingMode, reasoningEffort,
+      fileTree, addToast, setMessages,
+      projectMemory, userMemory, systemPromptOverride
+    });
+    if (planResult?.error) throw new Error(planResult.message);
+
+    // Execute
+    addToast('🔨 Executing tasks...', 'info');
+    await window.Orchestrator.runExecutePhase({
+      repo: originalRepo, branch: newBranch, githubToken,
+      provider, model: selectedModel, thinkingMode, reasoningEffort,
+      projectMemory, userMemory, systemPromptOverride,
+      addToast, setMessages,
+      setActiveFileContent, setActiveFilePath, setActiveTab
+    });
+
+    // Review
+    addToast('🔍 Reviewing changes...', 'info');
+    await window.Orchestrator.runReviewPhase({
+      repo: originalRepo, branch: newBranch, githubToken,
+      provider, model: selectedModel, thinkingMode, reasoningEffort,
+      fileTree, addToast, setMessages,
+      projectMemory, userMemory, systemPromptOverride
+    });
+
+    window.Orchestrator.setMode(prevMode);
+
+    // Open Pull Request
+    const prTitle = `Self‑improve: ${args.slice(0, 60)}`;
+    const pr = await window.GitHubService.createPullRequest(
+      originalRepo, newBranch, prTitle, 'main', githubToken
+    );
+
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: `✅ **Self‑improvement complete**\n🔀 Pull Request: ${pr.html_url}\n🌐 Netlify preview will be ready in ~2 minutes (no password needed).\n\nMerge after testing.`
+    }]);
+    addToast(`PR opened: ${pr.html_url}`, 'success');
+
+  } catch (err) {
+    addToast(`Self‑improve failed: ${err.message}`, 'error');
+    setMessages(prev => [...prev, { role: 'assistant', content: `❌ Failed: ${err.message}` }]);
+  } finally {
+    // Restore original branch in UI
+    setCurrentBranch(originalBranch);
+    await fetchFileTree();
+    window.selfImproveRunning = false;
+  }
+  return true;
       case '/execute': {
         await window.Orchestrator.runExecutePhase({ repo: currentRepo, branch: currentBranch, githubToken, provider, model: selectedModel, thinkingMode, reasoningEffort, projectMemory, userMemory, systemPromptOverride, addToast, setMessages, setActiveFileContent, setActiveFilePath, setActiveTab });
         refreshTasks();
