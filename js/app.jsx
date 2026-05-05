@@ -311,6 +311,7 @@ function App() {
         if (!userText.trim()) return;
         setInputPrompt('');
 
+        // ---- Slash command handling unchanged ----
         if (userText.startsWith('/')) {
             const parts = userText.trim().split(' ');
             const cmd = parts[0].toLowerCase();
@@ -318,8 +319,7 @@ function App() {
             if (await executeSlashCommand(cmd, args, userText)) return;
         }
 
-        if (!openRouterKey) return addToast('Missing OpenRouter key', 'error');
-
+        // ---- No key check here anymore ----
         const newMessages = [...messages, { role: 'user', content: userText }];
         setMessages(newMessages);
         setIsLoading(true);
