@@ -10,7 +10,10 @@ window.Navbar = ({
   rememberKeys, setRememberKeys,
   activeTab, setActiveTab,
   models, modelsLoading,
-  systemPromptOverride, setSystemPromptOverride   // new
+  systemPromptOverride, setSystemPromptOverride,
+  provider, setProvider,
+  thinkingMode, setThinkingMode,
+  reasoningEffort, setReasoningEffort,
 }) => {
   const [showSettings, setShowSettings] = React.useState(false);
   const [freeOnly, setFreeOnly] = React.useState(false);
@@ -22,7 +25,9 @@ window.Navbar = ({
     return id.includes(':free') || label.includes('(free)') || label.includes('free');
   };
 
-  const filteredModels = freeOnly ? models.filter(isFreeModel) : models;
+  const filteredModels = (provider === 'openrouter' && freeOnly)
+    ? models.filter(isFreeModel)
+    : models;
 
   const tabs = [
     { id: 'chat', label: '💬', title: 'Chat' },
@@ -34,11 +39,31 @@ window.Navbar = ({
   return React.createElement('header', {
     className: 'bg-zinc-900 border-b border-zinc-800 shrink-0 z-20'
   },
-    React.createElement('div', { className: 'flex items-center gap-3 px-4 py-2.5' },
+    React.createElement('div', { className: 'flex items-center gap-3 px-4 py-2.5 flex-wrap' },
 
       // Brand
       React.createElement('span', { className: 'font-bold text-sm bg-gradient-to-r from-orange-400 to-amber-500 bg-clip-text text-transparent whitespace-nowrap' },
         'Claude Code Web'
+      ),
+
+      // Provider toggle
+      React.createElement('div', { className: 'flex bg-zinc-950 rounded-lg p-0.5 border border-zinc-800 shrink-0' },
+        ['deepseek', 'openrouter'].map(p =>
+          React.createElement('button', {
+            key: p,
+            onClick: () => {
+              setProvider(p);
+              if (p === 'deepseek') {
+                setSelectedModel('deepseek-v4-flash');
+              } else {
+                setSelectedModel(models[0]?.value || 'openrouter/auto');
+              }
+            },
+            className: `px-3 py-1 rounded-md text-xs font-bold transition ${
+              provider === p ? 'bg-amber-600 text-zinc-950' : 'text-zinc-500 hover:text-zinc-300'
+            }`
+          }, p === 'deepseek' ? '🧠 DeepSeek' : '🔷 OpenRouter')
+        )
       ),
 
       // Workspace toggle
@@ -77,7 +102,7 @@ window.Navbar = ({
         })
       ),
 
-      // Fetch button
+      // Fetch
       React.createElement('button', {
         onClick: onFetchFileTree,
         disabled: isLoading,
@@ -85,31 +110,40 @@ window.Navbar = ({
       }, isLoading ? '⟳' : 'Fetch'),
 
       // Model select
-      React.createElement('div', { className: 'hidden md:flex items-center gap-2' },
-        React.createElement('select', {
-          value: selectedModel,
-          onChange: e => setSelectedModel(e.target.value),
-          className: 'p-1.5 rounded-lg bg-zinc-800 border border-zinc-700 outline-none text-xs text-zinc-300',
-          disabled: modelsLoading
-        },
-          modelsLoading && React.createElement('option', null, 'Loading models...'),
-          !modelsLoading && filteredModels.map(m =>
-            React.createElement('option', { key: m.value, value: m.value }, m.label)
-          )
-        ),
-        React.createElement('label', { className: 'flex items-center gap-1 text-xs text-zinc-500 cursor-pointer whitespace-nowrap' },
-          React.createElement('input', {
-            type: 'checkbox',
-            checked: freeOnly,
-            onChange: e => setFreeOnly(e.target.checked),
-            className: 'accent-amber-500 w-3 h-3'
-          }),
-          'Free only'
+      React.createElement('select', {
+        value: selectedModel,
+        onChange: e => setSelectedModel(e.target.value),
+        className: 'p-1.5 rounded-lg bg-zinc-800 border border-zinc-700 outline-none text-xs text-zinc-300',
+        disabled: modelsLoading
+      },
+        modelsLoading && React.createElement('option', null, 'Loading models...'),
+        !modelsLoading && filteredModels.map(m =>
+          React.createElement('option', { key: m.value, value: m.value }, m.label)
         )
+      ),
+
+      // Free only filter (only OpenRouter)
+      provider === 'openrouter' && React.createElement('label', { className: 'flex items-center gap-1 text-xs text-zinc-500 cursor-pointer whitespace-nowrap' },
+        React.createElement('input', {
+          type: 'checkbox',
+          checked: freeOnly,
+          onChange: e => setFreeOnly(e.target.checked),
+          className: 'accent-amber-500 w-3 h-3'
+        }),
+        'Free only'
       ),
 
       // Spacer
       React.createElement('div', { className: 'flex-1' }),
+
+      // Thinking mode (DeepSeek only)
+      provider === 'deepseek' && React.createElement('button', {
+        onClick: () => setThinkingMode(!thinkingMode),
+        title: 'Toggle thinking / reasoning mode',
+        className: `px-3 py-1 rounded-lg text-xs font-bold transition ${
+          thinkingMode ? 'bg-purple-600 text-white' : 'bg-zinc-800 text-zinc-500'
+        }`
+      }, '🧠 Thinking ' + (thinkingMode ? 'ON' : 'OFF')),
 
       // Tab buttons (desktop)
       React.createElement('div', { className: 'hidden lg:flex gap-1' },
@@ -160,7 +194,6 @@ window.Navbar = ({
         }),
         React.createElement('span', null, 'Remember keys')
       ),
-
       // System prompt override
       React.createElement('div', { className: 'w-full' },
         React.createElement('label', { className: 'block text-zinc-500 text-xs mb-1' }, 'Custom instructions'),
@@ -172,7 +205,6 @@ window.Navbar = ({
           rows: 3
         })
       ),
-
       // Mobile tab buttons
       React.createElement('div', { className: 'flex gap-1 lg:hidden ml-auto' },
         tabs.map(tab => React.createElement('button', {
