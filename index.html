@@ -121,25 +121,17 @@
         })();
     </script>
 
-    <!-- CDN scripts -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
     <!-- App modules -->
     <script type="text/babel" src="js/utils/markdown.js"></script>
     <script type="text/babel" src="js/utils/commands.js"></script>
     <script type="text/babel" src="js/utils/agentSkills.js"></script>
     <script type="text/babel" src="js/utils/intentDetector.js"></script>
     <script type="text/babel" src="js/utils/contextMatcher.js"></script>
-    <script type="text/babel" src="js/utils/sanityCheck.js"></script>
     <script type="text/babel" src="js/services/modelRegistry.js"></script>
     <script type="text/babel" src="js/services/github.js"></script>
-    <!-- Replace openrouter.js with new unified provider -->
     <script type="text/babel" src="js/services/llmProvider.js"></script>
+    <script type="text/babel" src="js/utils/sanityCheck.js"></script>   <!-- NEW -->
     <script type="text/babel" src="js/services/webSearch.js"></script>
-    <!-- Summary service and panel - ADD THESE TWO LINES -->
     <script type="text/babel" src="js/services/summaryService.js"></script>
     <script type="text/babel" src="js/components/SummaryPanel.jsx"></script>
     <script type="text/babel" src="js/services/taskManager.js"></script>
