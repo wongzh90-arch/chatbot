@@ -162,13 +162,6 @@ window.ChatPane = ({
         }, isLoading ? '…' : '↑')
       )
     ),
-
-    // Summary panel (added at the bottom)
-    React.createElement(window.SummaryPanel, {
-      conversationId: conversationId,
-      messages: messages,
-      onRegenerate: () => {}
-    })
   );
 };
 
