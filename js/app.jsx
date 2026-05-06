@@ -95,22 +95,15 @@ function App() {
     inputPrompt,         setInputPrompt,
   });
 
-  // ── onFileClick — load file and push card into chat ──────────
+  // ── onFileClick ───────────────────────────────────────────────
   const handleFileClick = async (path) => {
     const fileData = await github.loadFile(path);
-    if (fileData) {
-      commands.pushFileCard(fileData);
-    }
+    if (fileData) commands.pushFileCard(fileData);
   };
 
-  // ── onCommitFile — called from FileCard's Commit button ───────
+  // ── onCommitFile ──────────────────────────────────────────────
   const handleCommitFile = async (path, content, sha, message) => {
-    const result = await github.commitChange(path, content, sha, message);
-    if (result) {
-      // Optionally push a diff card here in Phase 1E when we have oldContent
-      // For now just return the result so FileCard can show committed state
-    }
-    return result;
+    return await github.commitChange(path, content, sha, message);
   };
 
   // ── Render ────────────────────────────────────────────────────
@@ -147,6 +140,7 @@ function App() {
       setSelectedModel:        provider.setSelectedModel,
       deployHook:              workspace.deployHook,
       setDeployHook:           workspace.setDeployHook,
+      onFetchFileTree:         github.fetchFileTree,
       isLoading:               github.isLoading,
       rememberKeys:            workspace.rememberKeys,
       setRememberKeys:         workspace.setRememberKeys,
@@ -166,7 +160,7 @@ function App() {
     React.createElement(window.ErrorBoundary, null,
       React.createElement('div', { className: 'flex flex-1 overflow-hidden' },
 
-        // Conversation list (slim sidebar)
+        // Conversation list sidebar
         React.createElement('div', {
           className: 'w-36 bg-zinc-950 border-r border-zinc-800 flex flex-col shrink-0'
         },
@@ -202,7 +196,7 @@ function App() {
           )
         ),
 
-        // Left pane — file tree + memory + tasks
+        // Left pane
         React.createElement(window.LeftPane, {
           fileTree:          github.fileTree,
           onFileClick:       handleFileClick,
@@ -214,18 +208,18 @@ function App() {
           onFetchFileTree:   github.fetchFileTree,
         }),
 
-        // Chat pane — full width, single view
+        // Chat pane
         React.createElement(window.ChatPane, {
-          messages:          conversation.messages,
+          messages:           conversation.messages,
           inputPrompt,
           setInputPrompt,
-          uploadedContext:   conversation.uploadedContext,
+          uploadedContext:    conversation.uploadedContext,
           setUploadedContext: conversation.setUploadedContext,
-          isLoading:         github.isLoading,
-          onSend:            commands.sendMessage,
-          onFileUpload:      commands.handleFileUpload,
+          isLoading:          github.isLoading,
+          onSend:             commands.sendMessage,
+          onFileUpload:       commands.handleFileUpload,
           showCmdHints,
-          onCmdHintClick:    cmd => {
+          onCmdHintClick: cmd => {
             setInputPrompt(cmd + ' ');
             if (conversation.inputRef.current) conversation.inputRef.current.focus();
           },
@@ -237,7 +231,7 @@ function App() {
             if (window.Orchestrator) window.Orchestrator.requestPause('user');
             addToast('⏸ Pause requested — stopping after current task', 'info');
           },
-          onCommitFile:      handleCommitFile,
+          onCommitFile: handleCommitFile,
         })
       )
     )
