@@ -1,65 +1,51 @@
 // js/agents/orchestrator.js
-// Changes from original:
-//   + requestPause(reason) / checkPause() — for pause button
-//   - All window.SummaryService calls removed (service deleted in 0B)
-
 window.Orchestrator = (() => {
-
-  // ── Hard caps ─────────────────────────────────────────────────
   const MAX_EXECUTE_ITERATIONS = 20;
-  const MAX_REVIEW_CYCLES      = 3;
-  const TASK_RETRY_LIMIT       = 2;
+  const MAX_REVIEW_CYCLES = 3;
+  const TASK_RETRY_LIMIT = 2;
 
-  // ── State ─────────────────────────────────────────────────────
   const initialState = () => ({
-    mode:             'manual',
-    phase:            'idle',
-    milestone:        null,
-    milestoneClosed:  false,
-    tasks:            [],
-    goal:             null,
+    mode: 'manual',
+    phase: 'idle',
+    milestone: null,
+    milestoneClosed: false,
+    tasks: [],
+    goal: null,
     lastExecutedTask: null,
     executeIterations: 0,
-    reviewCycles:     0,
-    taskRetries:      {},
-    runId:            null,
+    reviewCycles: 0,
+    taskRetries: {},
+    runId: null,
   });
 
-  let state        = initialState();
+  let state = initialState();
   let pauseRequested = false;
-  let pauseReason    = null;
+  let pauseReason = null;
 
-  // ── Public state accessors ────────────────────────────────────
-  function getState()  { return { ...state }; }
-  function setMode(m)  { state.mode = m; }
-
+  function getState() { return { ...state }; }
+  function setMode(m) { state.mode = m; }
   function resetState() {
     const prevMode = state.mode;
     state = initialState();
-    state.mode  = prevMode;
+    state.mode = prevMode;
     state.runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    // Clear any pending pause from a previous run
     pauseRequested = false;
-    pauseReason    = null;
+    pauseReason = null;
   }
-
   function isTerminal() {
     return state.phase === 'done' || state.phase === 'error' || state.phase === 'idle';
   }
 
-  // ── Pause controls ────────────────────────────────────────────
   function requestPause(reason = 'user') {
     pauseRequested = true;
-    pauseReason    = reason;
+    pauseReason = reason;
   }
-
   function checkPause() {
     if (!pauseRequested) return false;
     pauseRequested = false;
     return true;
   }
 
-  // ── Helper: format pause message ──────────────────────────────
   function pauseMessage(context) {
     const remaining = (state.tasks || []).filter(
       t => t.labels && t.labels.some(l => l.name === 'task:todo')
@@ -67,19 +53,17 @@ window.Orchestrator = (() => {
     return `⏸ **Paused** ${context}. ${remaining} task(s) remaining.\nType \`/execute\` to continue or \`/manual\` to stay in step mode.`;
   }
 
-  // ── PLAN ──────────────────────────────────────────────────────
   async function runPlanPhase({
     goal, repo, branch, githubToken,
     provider, model, thinkingMode, reasoningEffort,
     fileTree, addToast, setMessages,
-    projectMemory, userMemory, systemPromptOverride
+    projectMemory, userMemory, systemPromptOverride,
   }) {
     resetState();
     state.phase = 'planning';
-    state.goal  = goal;
-
+    state.goal = goal;
     setMessages(prev => [...prev,
-      { role: 'user',      content: `/plan ${goal}` },
+      { role: 'user', content: `/plan ${goal}` },
       { role: 'assistant', content: `🔍 Analysing **${repo}** and creating a task plan for: "${goal}"...` }
     ]);
 
@@ -88,33 +72,29 @@ window.Orchestrator = (() => {
         goal, repo, branch, githubToken,
         provider, model, thinkingMode, reasoningEffort,
         fileTree, addToast,
-        projectMemory, userMemory, systemPromptOverride
+        projectMemory, userMemory, systemPromptOverride,
       });
 
       if (result.error) {
         state.phase = 'error';
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `❌ Planning failed: ${result.message || result.error}`
+          content: `❌ Planning failed: ${result.message || result.error}`,
         }]);
         return { error: true, message: result.message || result.error };
       }
 
       state.milestone = result.milestone;
-      state.tasks     = result.tasks;
+      state.tasks = result.tasks;
 
       const planSummary = `📋 **Milestone:** ${result.milestone.title}\n\n${result.analysis || ''}\n\n**Tasks:**\n${
         result.tasks.map((t, i) => `${i + 1}. ${t.title} [#${t.issueNumber}](${t.html_url})`).join('\n')
       }`;
       setMessages(prev => [...prev, { role: 'assistant', content: planSummary }]);
 
-      // Pause check after planning
       if (checkPause()) {
         state.phase = 'awaiting_approval';
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: pauseMessage('after planning')
-        }]);
+        setMessages(prev => [...prev, { role: 'assistant', content: pauseMessage('after planning') }]);
         return { paused: true };
       }
 
@@ -125,33 +105,26 @@ window.Orchestrator = (() => {
           provider, model, thinkingMode, reasoningEffort,
           projectMemory, userMemory, systemPromptOverride,
           addToast, setMessages,
-          setActiveFileContent: null,
-          setActiveFilePath:    null,
-          setActiveTab:         null,
+          setActiveFileContent: null, setActiveFilePath: null, setActiveTab: null,
         });
       }
 
       state.phase = 'awaiting_approval';
       return { needsApproval: true };
-
     } catch (err) {
       state.phase = 'error';
       addToast(`Plan phase crashed: ${err.message}`, 'error');
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `❌ Unexpected error during planning: ${err.message}`
-      }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: `❌ Unexpected error during planning: ${err.message}` }]);
       return { error: true, message: err.message };
     }
   }
 
-  // ── EXECUTE ───────────────────────────────────────────────────
   async function runExecutePhase({
     repo, branch, githubToken,
     provider, model, thinkingMode, reasoningEffort,
     projectMemory, userMemory, systemPromptOverride,
     addToast, setMessages,
-    setActiveFileContent, setActiveFilePath, setActiveTab
+    setActiveFileContent, setActiveFilePath, setActiveTab,
   }) {
     if (!state.milestone) {
       addToast('No active milestone. Run /plan first.', 'error');
@@ -159,7 +132,6 @@ window.Orchestrator = (() => {
     }
     if (state.phase === 'done') return { done: true };
 
-    // Iteration cap
     state.executeIterations += 1;
     if (state.executeIterations > MAX_EXECUTE_ITERATIONS) {
       state.phase = 'error';
@@ -170,11 +142,8 @@ window.Orchestrator = (() => {
     }
 
     state.phase = 'executing';
-
     try {
-      const allTasks = await window.TaskManager.getTasksByMilestone(
-        repo, state.milestone.number, githubToken
-      );
+      const allTasks = await window.TaskManager.getTasksByMilestone(repo, state.milestone.number, githubToken);
       state.tasks = allTasks;
 
       const eligibleTasks = allTasks.filter(t => {
@@ -189,11 +158,10 @@ window.Orchestrator = (() => {
         projectMemory, userMemory, systemPromptOverride,
         addToast,
         setActiveFileContent: setActiveFileContent || (() => {}),
-        setActiveFilePath:    setActiveFilePath    || (() => {}),
-        setActiveTab:         setActiveTab         || (() => {}),
+        setActiveFilePath: setActiveFilePath || (() => {}),
+        setActiveTab: setActiveTab || (() => {}),
       });
 
-      // No eligible task — either all done or all over retry limit
       if (!result) {
         const stillTodo = eligibleTasks.filter(t =>
           t.labels.some(l => l.name === 'task:todo' || l.name === 'task:in_progress')
@@ -205,40 +173,33 @@ window.Orchestrator = (() => {
           setMessages(prev => [...prev, { role: 'assistant', content: `⚠️ ${msg}` }]);
           return { error: true, partial: true, message: msg };
         }
-        // All done → review
         addToast('All eligible tasks done. Moving to review...', 'info');
         return await runReviewPhase({
           repo, branch, githubToken,
           provider, model, thinkingMode, reasoningEffort,
           fileTree: [], addToast, setMessages,
-          projectMemory, userMemory, systemPromptOverride
+          projectMemory, userMemory, systemPromptOverride,
         });
       }
 
-      // Track outcome
       if (result.failed) {
-        state.taskRetries[result.taskNumber] =
-          (state.taskRetries[result.taskNumber] || 0) + 1;
+        state.taskRetries[result.taskNumber] = (state.taskRetries[result.taskNumber] || 0) + 1;
         const retries = state.taskRetries[result.taskNumber];
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `⚠️ Task **${result.title}** [#${result.taskNumber}] failed (attempt ${retries}/${TASK_RETRY_LIMIT}): ${result.reason || 'no code produced'}`
+          content: `⚠️ Task **${result.title}** [#${result.taskNumber}] failed (attempt ${retries}/${TASK_RETRY_LIMIT}): ${result.reason || 'no code produced'}`,
         }]);
       } else {
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `🔨 Executed **${result.title}** [#${result.issueNumber || result.number}]`
+          content: `🔨 Executed **${result.title}** [#${result.issueNumber || result.number}]`,
         }]);
         state.lastExecutedTask = result;
       }
 
-      // Pause check between tasks
       if (checkPause()) {
         state.phase = 'awaiting_approval';
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: pauseMessage(`after "${result.title || 'task'}"`)
-        }]);
+        setMessages(prev => [...prev, { role: 'assistant', content: pauseMessage(`after "${result.title || 'task'}"`) }]);
         return { paused: true, lastTask: result };
       }
 
@@ -250,31 +211,24 @@ window.Orchestrator = (() => {
           provider, model, thinkingMode, reasoningEffort,
           projectMemory, userMemory, systemPromptOverride,
           addToast, setMessages,
-          setActiveFileContent: null,
-          setActiveFilePath:    null,
-          setActiveTab:         null,
+          setActiveFileContent: null, setActiveFilePath: null, setActiveTab: null,
         });
       }
 
       return { needsApproval: true, lastTask: result };
-
     } catch (err) {
       state.phase = 'error';
       addToast(`Execution phase crashed: ${err.message}`, 'error');
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `❌ Unexpected error during execution: ${err.message}`
-      }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: `❌ Unexpected error during execution: ${err.message}` }]);
       return { error: true, message: err.message };
     }
   }
 
-  // ── REVIEW ────────────────────────────────────────────────────
   async function runReviewPhase({
     repo, branch, githubToken,
     provider, model, thinkingMode, reasoningEffort,
     fileTree, addToast, setMessages,
-    projectMemory, userMemory, systemPromptOverride
+    projectMemory, userMemory, systemPromptOverride,
   }) {
     if (!state.milestone) {
       addToast('No active milestone to review.', 'warning');
@@ -282,13 +236,9 @@ window.Orchestrator = (() => {
     }
     if (state.phase === 'done') return { done: true };
 
-    // Pause check before review
     if (checkPause()) {
       state.phase = 'awaiting_approval';
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: pauseMessage('before review')
-      }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: pauseMessage('before review') }]);
       return { paused: true };
     }
 
@@ -302,15 +252,9 @@ window.Orchestrator = (() => {
     }
 
     state.phase = 'reviewing';
-
     try {
-      const allTasks = await window.TaskManager.getTasksByMilestone(
-        repo, state.milestone.number, githubToken
-      );
-
-      const doneCount = allTasks.filter(t =>
-        t.labels.some(l => l.name === 'task:done')
-      ).length;
+      const allTasks = await window.TaskManager.getTasksByMilestone(repo, state.milestone.number, githubToken);
+      const doneCount = allTasks.filter(t => t.labels.some(l => l.name === 'task:done')).length;
 
       if (doneCount === 0) {
         state.phase = 'error';
@@ -322,7 +266,7 @@ window.Orchestrator = (() => {
 
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `🔍 Reviewing ${doneCount} completed task(s) (cycle ${state.reviewCycles}/${MAX_REVIEW_CYCLES})...`
+        content: `🔍 Reviewing ${doneCount} completed task(s) (cycle ${state.reviewCycles}/${MAX_REVIEW_CYCLES})...`,
       }]);
 
       const result = await window.ReviewerAgent.reviewCompletedTasks({
@@ -330,32 +274,34 @@ window.Orchestrator = (() => {
         repo, branch, githubToken,
         provider, model, thinkingMode, reasoningEffort,
         fileTree, addToast,
-        projectMemory, userMemory, systemPromptOverride
+        projectMemory, userMemory, systemPromptOverride,
       });
 
       if (result.issuesFound === 0) {
         state.phase = 'done';
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: '✅ **All tasks reviewed and passed!** Ready to merge.'
+          content: '✅ **All tasks reviewed and passed!** Ready to merge.',
         }]);
 
-        // Close milestone (idempotent)
         if (state.milestone && !state.milestoneClosed) {
           state.milestoneClosed = true;
           try {
-            await window.TaskManager.closeMilestone(
-              repo, state.milestone.number, githubToken
-            );
+            await window.TaskManager.closeMilestone(repo, state.milestone.number, githubToken);
             addToast('🎉 Milestone complete!', 'success');
           } catch (e) {
             console.warn('Milestone close failed (likely already closed):', e.message);
           }
         }
+
+        // 🔥 Phase 0C: record run completed
+        if (window.ConversationMemory) {
+          window.ConversationMemory.recordRunCompleted(repo, branch, true);
+        }
+
         return { done: true };
       }
 
-      // Issues found — back to execute if cycles remain
       if (state.reviewCycles >= MAX_REVIEW_CYCLES) {
         state.phase = 'error';
         const msg = `Review found ${result.issuesFound} issue(s) but cycle limit reached. Manual intervention needed.`;
@@ -367,7 +313,7 @@ window.Orchestrator = (() => {
       state.phase = 'executing';
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `⚠️ **${result.issuesFound} task(s) need fixes.** Re-executing...`
+        content: `⚠️ **${result.issuesFound} task(s) need fixes.** Re-executing...`,
       }]);
 
       if (state.mode === 'autopilot') {
@@ -376,34 +322,22 @@ window.Orchestrator = (() => {
           provider, model, thinkingMode, reasoningEffort,
           projectMemory, userMemory, systemPromptOverride,
           addToast, setMessages,
-          setActiveFileContent: null,
-          setActiveFilePath:    null,
-          setActiveTab:         null,
+          setActiveFileContent: null, setActiveFilePath: null, setActiveTab: null,
         });
       }
 
       return { needsApproval: true, issuesFound: result.issuesFound };
-
     } catch (err) {
       state.phase = 'error';
       addToast(`Review phase crashed: ${err.message}`, 'error');
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `❌ Unexpected error during review: ${err.message}`
-      }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: `❌ Unexpected error during review: ${err.message}` }]);
       return { error: true, message: err.message };
     }
   }
 
   return {
-    getState,
-    setMode,
-    resetState,
-    isTerminal,
-    requestPause,
-    checkPause,
-    runPlanPhase,
-    runExecutePhase,
-    runReviewPhase,
+    getState, setMode, resetState, isTerminal,
+    requestPause, checkPause,
+    runPlanPhase, runExecutePhase, runReviewPhase,
   };
 })();
