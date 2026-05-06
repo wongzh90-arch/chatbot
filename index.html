@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Claude Code Web – Solo Edition</title>
 
-    <!-- Tailwind CSS (must come first) -->
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
 
     <!-- React 18 -->
@@ -93,7 +93,7 @@
         </form>
     </div>
 
-    <!-- React mounts here (hidden until password is correct) -->
+    <!-- React mounts here -->
     <div id="root" style="display:none; height:100vh;"></div>
 
     <!-- ── Utilities (no dependencies) ── -->
@@ -103,6 +103,7 @@
     <script src="js/utils/contextMatcher.js"></script>
     <script src="js/utils/intentDetector.js"></script>
     <script src="js/utils/sanityCheck.js"></script>
+    <script src="js/utils/diffUtils.js"></script>
     <script type="text/babel" src="js/utils/ErrorBoundary.jsx"></script>
 
     <!-- ── Services (depend on utilities) ── -->
@@ -110,7 +111,6 @@
     <script src="js/services/llmProvider.js"></script>
     <script src="js/services/modelRegistry.js"></script>
     <script src="js/services/openrouter.js"></script>
-    <script src="js/services/summaryService.js"></script>
     <script src="js/services/taskManager.js"></script>
     <script src="js/services/webSearch.js"></script>
 
@@ -120,21 +120,27 @@
     <script src="js/agents/reviewer.js"></script>
     <script src="js/agents/orchestrator.js"></script>
 
+    <!-- ── State hooks (no React dependencies, plain JS) ── -->
+    <script src="js/state/useProviderState.js"></script>
+    <script src="js/state/useWorkspaceState.js"></script>
+    <script src="js/state/useConversationState.js"></script>
+    <script src="js/state/useGitHubActions.js"></script>
+
+    <!-- ── Command handler (depends on state hooks + agents) ── -->
+    <script src="js/handlers/useCommandHandler.js"></script>
+
     <!-- ── Components (depend on services + utilities) ── -->
     <script type="text/babel" src="js/components/Navbar.jsx"></script>
     <script type="text/babel" src="js/components/LeftPane.jsx"></script>
-    <script type="text/babel" src="js/components/EditorPane.jsx"></script>
     <script type="text/babel" src="js/components/ChatPane.jsx"></script>
-    <script type="text/babel" src="js/components/SummaryPanel.jsx"></script>
-    <script type="text/babel" src="js/components/TaskBoard.jsx"></script>
 
-    <!-- ── Main app (depends on everything above) ── -->
+    <!-- ── Main app ── -->
     <script type="text/babel" src="js/app.jsx"></script>
 
     <!-- ── Login gate logic ── -->
     <script>
         var GATE_PASSWORD_HASH = 'c1366f39d8847f3659cdd75c4d9d4fe3f3c0f77782ffe2c41c995e844d68521f';
-    
+
         async function hashPassword(input) {
             const encoder = new TextEncoder();
             const data = encoder.encode(input);
@@ -142,7 +148,7 @@
             const hashArray = Array.from(new Uint8Array(hashBuffer));
             return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
         }
-    
+
         async function checkPassword() {
             var input = document.getElementById('gate-password').value;
             var hashed = await hashPassword(input);
@@ -154,7 +160,7 @@
                 document.getElementById('gate-password').placeholder = 'Wrong password, try again';
             }
         }
-    
+
         document.getElementById('gate-password').addEventListener('keydown', function(e) {
             if (e.key === 'Enter') checkPassword();
         });
