@@ -1,4 +1,3 @@
-================================================
 // js/handlers/useCommandHandler.js
 window.useCommandHandler = function useCommandHandler({
   provider, selectedModel, thinkingMode, reasoningEffort,
