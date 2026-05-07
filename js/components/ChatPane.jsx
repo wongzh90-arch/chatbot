@@ -26,6 +26,7 @@ window.ChatPane = ({
   const chatBg = theme === 'dark' ? 'bg-zinc-950 border-zinc-900' : 'bg-white border-gray-200';
   const headerBg = theme === 'dark' ? 'bg-zinc-950 border-zinc-900' : 'bg-gray-50 border-gray-200';
   const inputBg = theme === 'dark' ? 'bg-zinc-950 border-zinc-900' : 'bg-white border-gray-200';
+  const inputContainerBg = theme === 'dark' ? 'bg-zinc-950/95' : 'bg-white/95'; // <-- NEW, for backdrop
   const textareaBg = theme === 'dark' ? 'bg-zinc-900 border-zinc-800 focus:border-amber-500/50' : 'bg-gray-100 border-gray-300 focus:border-amber-500';
   const textareaText = theme === 'dark' ? 'text-zinc-100 placeholder-zinc-600' : 'text-gray-800 placeholder-gray-400';
   const msgBgUser = theme === 'dark' ? 'bg-amber-600/12 border-amber-500/20 text-zinc-200' : 'bg-amber-50 border-amber-200 text-gray-800';
@@ -61,7 +62,7 @@ window.ChatPane = ({
       allMessages.map((m, i) => React.createElement(MessageBubble, { key: i, message: m, theme })),
     ),
     // Input area
-    React.createElement('div', { className: `border-t ${inputBg} bg-zinc-950/95 backdrop-blur flex-shrink-0` },
+    React.createElement('div', { className: `border-t ${inputBg} ${inputContainerBg} backdrop-blur flex-shrink-0` },  // <-- CHANGED: no more hardcoded bg-zinc-950/95
       // Command hints
       showCmdHints && React.createElement('div', { className: 'px-3 pt-1 flex gap-1 flex-wrap' },
         window.COMMANDS.slice(0, 8).map(cmd =>
