@@ -56,6 +56,8 @@ function AppContent() {
   });
   // ── Orchestrator tasks ────────────────────────────────────────
   const [orchestratorTasks, setOrchestratorTasks] = useState([]);
+  // ── Active tab (Chat | Editor | Files | Tasks) ────────────────
+  const [activeTab, setActiveTab] = useState('chat');
   // ── Input / hints ─────────────────────────────────────────────
   const [inputPrompt, setInputPrompt] = useState('');
   const [showCmdHints, setShowCmdHints] = useState(false);
@@ -77,7 +79,6 @@ function AppContent() {
     setUploadedContext: conversation.setUploadedContext,
     setStreamingMessage: conversation.setStreamingMessage,
     setStreamingReasoning: conversation.setStreamingReasoning,
-    setStatusMessage: conversation.setStatusMessage,
     isRunActive: conversation.isRunActive,
     setIsRunActive: conversation.setIsRunActive,
     fetchFileTree: github.fetchFileTree,
@@ -157,11 +158,13 @@ function AppContent() {
       setThinkingMode: provider.setThinkingMode,
       reasoningEffort: provider.reasoningEffort,
       setReasoningEffort: provider.setReasoningEffort,
+      activeTab,
+      setActiveTab,
     }),
     // Body
     React.createElement(window.ErrorBoundary, null,
       React.createElement('div', { className: 'flex flex-1 overflow-hidden' },
-        // Conversation list sidebar (theme‑aware)
+        // Conversation list sidebar — always visible
         React.createElement('div', {
           className: `w-36 ${sidebarBg} border-r flex flex-col shrink-0`
         },
@@ -196,45 +199,115 @@ function AppContent() {
             )
           )
         ),
-        // Left pane (theme prop passed)
-        React.createElement(window.LeftPane, {
+        // ── Tab-driven main area ──────────────────────────────────
+        // Files tab: LeftPane full width, no ChatPane
+        activeTab === 'tree' && React.createElement(window.LeftPane, {
           theme,
           fileTree: github.fileTree,
-          onFileClick: handleFileClick,
+          onFileClick: (path) => { handleFileClick(path); setActiveTab('chat'); },
           recentlyModified: github.recentlyModified,
           memory: projectMemory,
           orchestratorTasks,
           isRunActive: conversation.isRunActive,
           isLoading: github.isLoading,
           onFetchFileTree: github.fetchFileTree,
+          fullWidth: true,
         }),
-        // Chat pane (theme prop passed)
-        React.createElement(window.ChatPane, {
-          theme,
-          messages: conversation.messages,
-          inputPrompt,
-          setInputPrompt,
-          uploadedContext: conversation.uploadedContext,
-          setUploadedContext: conversation.setUploadedContext,
-          isLoading: github.isLoading,
-          onSend: commands.sendMessage,
-          onFileUpload: commands.handleFileUpload,
-          showCmdHints,
-          onCmdHintClick: cmd => {
-            setInputPrompt(cmd + ' ');
-            if (conversation.inputRef.current) conversation.inputRef.current.focus();
-          },
-          chatScrollRef: conversation.chatScrollRef,
-          inputRef: conversation.inputRef,
-          streamingMessage: conversation.streamingMessage,
-          statusMessage: conversation.statusMessage,
-          isRunActive: conversation.isRunActive,
-          onPause: () => {
-            if (window.Orchestrator) window.Orchestrator.requestPause('user');
-            addToast('⏸ Pause requested — stopping after current task', 'info');
-          },
-          onCommitFile: handleCommitFile,
-        })
+        // Tasks tab: expanded task list full width
+        activeTab === 'tasks' && React.createElement('div', {
+          className: `flex-1 flex flex-col overflow-hidden ${theme === 'dark' ? 'bg-zinc-950' : 'bg-white'}`
+        },
+          React.createElement('div', {
+            className: `px-4 py-2.5 border-b shrink-0 font-bold text-xs uppercase tracking-widest text-green-400 ${theme === 'dark' ? 'bg-zinc-950 border-zinc-900' : 'bg-gray-50 border-gray-200'}`
+          }, '📋 Task Queue'),
+          React.createElement('div', { className: 'flex-1 overflow-y-auto p-4 custom-scrollbar' },
+            (() => {
+              const tasks = window.TaskQueue ? window.TaskQueue.getAllTasks() : orchestratorTasks || [];
+              const state = window.TaskQueue ? window.TaskQueue.getState() : null;
+              const statusColors = {
+                DONE: 'text-green-400', IN_PROGRESS: 'text-amber-400',
+                REVIEW: 'text-purple-400', FAILED: 'text-red-400',
+                TODO: theme === 'dark' ? 'text-zinc-500' : 'text-gray-400',
+              };
+              const statusBg = {
+                DONE: 'border-green-800/40 bg-green-950/20',
+                IN_PROGRESS: 'border-amber-700/40 bg-amber-950/20',
+                REVIEW: 'border-purple-700/40 bg-purple-950/20',
+                FAILED: 'border-red-800/40 bg-red-950/20',
+                TODO: theme === 'dark' ? 'border-zinc-800 bg-zinc-900/50' : 'border-gray-200 bg-gray-50',
+              };
+              if (tasks.length === 0) return React.createElement('p', {
+                className: `text-sm ${theme === 'dark' ? 'text-zinc-600' : 'text-gray-400'} italic`
+              }, 'No active tasks. Use /plan <goal> to create a plan.');
+              return React.createElement('div', { className: 'space-y-3' },
+                state?.goal && React.createElement('div', {
+                  className: `text-xs px-3 py-2 rounded-lg border ${theme === 'dark' ? 'border-amber-800/40 bg-amber-950/20 text-amber-300' : 'border-amber-200 bg-amber-50 text-amber-700'}`
+                }, `🎯 Goal: ${state.goal}`),
+                tasks.map(t => React.createElement('div', {
+                  key: t.id,
+                  className: `rounded-xl border p-3 text-sm ${statusBg[t.status] || statusBg.TODO}`
+                },
+                  React.createElement('div', { className: 'flex items-center gap-2 mb-1' },
+                    React.createElement('span', { className: `text-xs font-bold ${statusColors[t.status] || ''}` }, t.status),
+                    React.createElement('span', { className: `font-medium ${theme === 'dark' ? 'text-zinc-200' : 'text-gray-800'}` }, t.title)
+                  ),
+                  t.description && React.createElement('p', {
+                    className: `text-xs mt-1 ${theme === 'dark' ? 'text-zinc-500' : 'text-gray-500'}`
+                  }, t.description),
+                  t.files && t.files.length > 0 && React.createElement('div', {
+                    className: `mt-2 flex flex-wrap gap-1`
+                  }, t.files.map(f => React.createElement('span', {
+                    key: f,
+                    className: `text-[10px] font-mono px-1.5 py-0.5 rounded ${theme === 'dark' ? 'bg-zinc-800 text-zinc-400' : 'bg-gray-100 text-gray-500'}`
+                  }, f.split('/').pop()))),
+                  t.error && React.createElement('p', {
+                    className: 'text-xs text-red-400 mt-1'
+                  }, `Error: ${t.error}`)
+                ))
+              );
+            })()
+          )
+        ),
+        // Chat tab (default) + Editor tab: LeftPane sidebar + ChatPane
+        (activeTab === 'chat' || activeTab === 'editor') && React.createElement(React.Fragment, null,
+          React.createElement(window.LeftPane, {
+            theme,
+            fileTree: github.fileTree,
+            onFileClick: handleFileClick,
+            recentlyModified: github.recentlyModified,
+            memory: projectMemory,
+            orchestratorTasks,
+            isRunActive: conversation.isRunActive,
+            isLoading: github.isLoading,
+            onFetchFileTree: github.fetchFileTree,
+          }),
+          React.createElement(window.ChatPane, {
+            theme,
+            messages: conversation.messages,
+            inputPrompt,
+            setInputPrompt,
+            uploadedContext: conversation.uploadedContext,
+            setUploadedContext: conversation.setUploadedContext,
+            isLoading: github.isLoading,
+            onSend: commands.sendMessage,
+            onFileUpload: commands.handleFileUpload,
+            showCmdHints,
+            onCmdHintClick: cmd => {
+              setInputPrompt(cmd + ' ');
+              if (conversation.inputRef.current) conversation.inputRef.current.focus();
+            },
+            chatScrollRef: conversation.chatScrollRef,
+            inputRef: conversation.inputRef,
+            streamingMessage: conversation.streamingMessage,
+            statusMessage: conversation.statusMessage,
+            isRunActive: conversation.isRunActive,
+            onPause: () => {
+              if (window.Orchestrator) window.Orchestrator.requestPause('user');
+              addToast('⏸ Pause requested — stopping after current task', 'info');
+            },
+            onCommitFile: handleCommitFile,
+          })
+        )
       )
     )
   );
