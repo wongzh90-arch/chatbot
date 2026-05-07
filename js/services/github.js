@@ -1,4 +1,3 @@
-================================================
 window.GitHubService = (() => {
   function headers(token) {
     return {
