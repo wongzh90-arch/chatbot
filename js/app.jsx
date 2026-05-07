@@ -307,6 +307,12 @@ function AppContent() {
               addToast('⏸ Pause requested — stopping after current task', 'info');
             },
             onCommitFile: handleCommitFile,
+            statusMessage: conversation.statusMessage,
+            isRunActive: conversation.isRunActive,
+            onPause: () => {
+              if (window.Orchestrator) window.Orchestrator.requestPause('user');
+              addToast('⏸ Pause requested — stopping after current task', 'info');
+            },
           })
         )
       )
