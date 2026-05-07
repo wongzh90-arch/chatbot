@@ -6,6 +6,7 @@ window.useCommandHandler = function useCommandHandler({
   messages, setMessages,
   uploadedContext, setUploadedContext,
   setStreamingMessage, setStreamingReasoning,
+  setStatusMessage,
   isRunActive, setIsRunActive,
   fetchFileTree,
   loadFile,
@@ -18,10 +19,13 @@ window.useCommandHandler = function useCommandHandler({
   inputPrompt, setInputPrompt,
   loadManifest,
   manifest,
-  fileTree,
 }) {
   const { useRef } = React;
   const selfImproveRunning = useRef(false);
+  // ── Convenience: set status, auto-clear when passed '' ───────
+  const setStatus = (msg) => {
+    if (setStatusMessage) setStatusMessage(msg);
+  };
   const pushFileCard = (fileData) => {
     setMessages(prev => [...prev, {
       role: 'file',
@@ -104,7 +108,7 @@ window.useCommandHandler = function useCommandHandler({
     systemPromptOverride,
     addToast,
     setMessages,
-    fileTree: fileTree || [],
+    fileTree: [],
     manifest,
   });
   const getLastFileContext = () => {
@@ -201,6 +205,7 @@ window.useCommandHandler = function useCommandHandler({
         if (!args) { addToast('Enter a search query.', 'error'); return true; }
         setMessages(prev => [...prev, { role: 'user', content: userText }]);
         addToast('🔍 Searching...', 'info');
+        setStatus(`🔍 Searching the web for "${args}"...`);
         try {
           const results = await window.WebSearchService.search(args, { count: 6 });
           if (results.length === 0) {
@@ -214,6 +219,7 @@ window.useCommandHandler = function useCommandHandler({
               synthesis: null,
             }]);
             addToast(`${results.length} results · synthesising...`, 'info');
+            setStatus('💡 Synthesising search results...');
             const synthesis = await synthesiseSearchResults(args, results);
             if (synthesis) {
               setMessages(prev => {
@@ -225,6 +231,7 @@ window.useCommandHandler = function useCommandHandler({
             }
           }
           addToast('Search complete', 'success');
+          setStatus('');
         } catch (e) {
           addToast(e.message, 'error');
           setMessages(prev => [...prev, { role: 'assistant', content: `❌ Search failed: ${e.message}` }]);
@@ -235,14 +242,17 @@ window.useCommandHandler = function useCommandHandler({
         if (!args) { addToast('Provide a goal.', 'error'); return true; }
         setMessages(prev => [...prev, { role: 'user', content: userText }]);
         setIsRunActive(true);
+        setStatus('🔍 Analysing repository and building plan...');
         const planResult = await window.Orchestrator.runPlanPhase({ ...orchArgs(), goal: args });
         await refreshTasks();
+        setStatus('');
         if (!planResult?.paused) setIsRunActive(false);
         return true;
       }
       case '/execute': {
         setMessages(prev => [...prev, { role: 'user', content: userText }]);
         setIsRunActive(true);
+        setStatus('🔨 Executing tasks...');
         const execResult = await window.Orchestrator.runExecutePhase({
           ...orchArgs(),
           setActiveFileContent: () => {},
@@ -250,14 +260,17 @@ window.useCommandHandler = function useCommandHandler({
           setActiveTab: () => {},
         });
         await refreshTasks();
+        setStatus('');
         if (!execResult?.paused) setIsRunActive(false);
         return true;
       }
       case '/review': {
         setMessages(prev => [...prev, { role: 'user', content: userText }]);
         setIsRunActive(true);
+        setStatus('🔍 Reviewing completed tasks...');
         const reviewResult = await window.Orchestrator.runReviewPhase(orchArgs());
         await refreshTasks();
+        setStatus('');
         if (!reviewResult?.paused) setIsRunActive(false);
         return true;
       }
@@ -413,6 +426,7 @@ window.useCommandHandler = function useCommandHandler({
         }
         setMessages(prev => [...prev, { role: 'user', content: userText }]);
         addToast('🔧 Building manifest...', 'info');
+        setStatus('🔧 Scanning files and building manifest...');
         try {
           const files = await window.GitHubService.fetchFileTree(currentRepo, currentBranch, githubToken);
           const jsFiles = files.filter(f => f.path.startsWith('js/') && (f.path.endsWith('.js') || f.path.endsWith('.jsx')));
@@ -431,8 +445,10 @@ window.useCommandHandler = function useCommandHandler({
           await commitChange('manifest.json', manifestJson, oldSha, 'chore: update manifest');
           if (loadManifest) await loadManifest();
           addToast('✅ Manifest built and committed', 'success');
+          setStatus('');
           setMessages(prev => [...prev, { role: 'assistant', content: `✅ **Manifest built** — ${Object.keys(manifest).length} modules indexed.` }]);
         } catch (e) {
+          setStatus('');
           addToast(`Manifest build failed: ${e.message}`, 'error');
           setMessages(prev => [...prev, { role: 'assistant', content: `❌ Manifest build failed: ${e.message}` }]);
         }
@@ -472,6 +488,7 @@ window.useCommandHandler = function useCommandHandler({
     // AI chat
     const newMessages = [...messages, { role: 'user', content: userText }];
     setMessages(newMessages);
+    setStatus('⏳ Waiting for response...');
     const lastFile = getLastFileContext();
     const fileBlock = lastFile
       ? `Active file: ${lastFile.path}\nContent:\n\`\`\`\n${lastFile.content.slice(0, 3000)}\n\`\`\``
@@ -510,8 +527,12 @@ window.useCommandHandler = function useCommandHandler({
         userContent,
         thinkingMode,
         reasoningEffort,
-        onToken: (_, accumulated) => setStreamingMessage(accumulated),
+        onToken: (_, accumulated) => {
+          if (accumulated.length < 10) setStatus('✍️ Receiving response...');
+          setStreamingMessage(accumulated);
+        },
         onDone: async (fullContent, usedModel, reasoning) => {
+          setStatus('');
           try {
             const { modifiedReply, actions } = window.processAgentSkills(fullContent || '');
             if (actions.updateEditorContent && actions.updateEditorFile) {
@@ -552,6 +573,7 @@ window.useCommandHandler = function useCommandHandler({
           }
         },
         onError: (e) => {
+          setStatus('');
           addToast(e.message, 'error');
           setMessages(prev => [...prev, { role: 'assistant', content: `*Error: ${e.message}*` }]);
           setStreamingMessage('');
@@ -559,6 +581,7 @@ window.useCommandHandler = function useCommandHandler({
         }
       });
     } catch (e) {
+      setStatus('');
       addToast(e.message, 'error');
       setMessages(prev => [...prev, { role: 'assistant', content: `*Error: ${e.message}*` }]);
       setStreamingMessage('');
