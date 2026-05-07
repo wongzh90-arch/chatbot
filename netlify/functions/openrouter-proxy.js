@@ -11,7 +11,7 @@ exports.handler = async (event) => {
 
   try {
     const requestBody = JSON.parse(event.body);
-    requestBody.stream = true; // Force streaming
+    const wantsStream = requestBody.stream === true;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 29000);
@@ -38,6 +38,17 @@ exports.handler = async (event) => {
       };
     }
 
+    if (!wantsStream) {
+      // Non‑streaming: collect full response and return JSON
+      const data = await upstreamRes.json();
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      };
+    }
+
+    // Streaming: pipe the raw SSE stream
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
 
@@ -50,7 +61,7 @@ exports.handler = async (event) => {
           await writer.write(value);
         }
       } catch (err) {
-        console.error('OpenRouter streaming error:', err);
+        console.error('Stream error:', err);
       } finally {
         await writer.close();
       }
