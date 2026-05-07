@@ -1,3 +1,4 @@
+// netlify/functions/deepseek-proxy.js (already correct)
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
@@ -36,7 +37,6 @@ exports.handler = async (event) => {
     }
 
     if (!wantsStream) {
-      // Non‑streaming: collect full response and return JSON
       const data = await upstreamRes.json();
       return {
         statusCode: 200,
@@ -45,7 +45,6 @@ exports.handler = async (event) => {
       };
     }
 
-    // Streaming: pipe the raw SSE stream
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
 
