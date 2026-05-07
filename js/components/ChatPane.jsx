@@ -89,13 +89,20 @@ window.ChatPane = ({
     React.createElement('div', { className: `border-t ${inputBg} ${inputContainerBg} backdrop-blur flex-shrink-0` },  // <-- CHANGED: no more hardcoded bg-zinc-950/95
       // Command hints
       showCmdHints && React.createElement('div', { className: 'px-3 pt-1 flex gap-1 flex-wrap' },
-        window.COMMANDS.slice(0, 8).map(cmd =>
-          React.createElement('button', {
-            key: cmd.cmd,
-            onClick: () => onCmdHintClick(cmd.cmd),
-            className: 'text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition'
-          }, cmd.cmd)
-        )
+        window.COMMANDS
+          .filter(cmd => {
+            const typed = (inputPrompt || '').toLowerCase();
+            return typed === '/' || cmd.cmd.startsWith(typed);
+          })
+          .slice(0, 10)
+          .map(cmd =>
+            React.createElement('button', {
+              key: cmd.cmd,
+              onClick: () => onCmdHintClick(cmd.cmd),
+              title: cmd.desc,
+              className: 'text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition'
+            }, cmd.cmd)
+          )
       ),
       // Intent suggestion
       React.createElement('div', { className: 'px-3 pt-1' },
@@ -139,6 +146,11 @@ window.ChatPane = ({
           onKeyDown: handleKeyDown,
           className: `flex-1 ${textareaBg} ${textareaText} rounded-xl outline-none px-4 py-2.5 text-sm font-mono resize-none leading-6 transition custom-scrollbar overflow-hidden min-h-[2.75rem]`
         }),
+        isRunActive && React.createElement('button', {
+          onClick: onPause,
+          title: 'Pause after current task',
+          className: 'px-3 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-xl transition shrink-0 text-sm mb-0.5'
+        }, '⏸'),
         React.createElement('button', {
           onClick: () => onSend(),
           disabled: isLoading || !inputPrompt.trim(),
