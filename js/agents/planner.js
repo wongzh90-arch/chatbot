@@ -31,7 +31,7 @@ window.PlannerAgent = (() => {
         return !isExcluded && isRelevant;
       })
       .map(f => f.path)
-      .slice(0, 20);                                    // <-- was 40
+      .slice(0, 10);                                    // <-- was 40
 
     let sysPrompt;
 
@@ -41,7 +41,7 @@ window.PlannerAgent = (() => {
         .map(([path, entry]) =>
           `- ${path} (${entry.lineCount} lines)\n  desc: ${entry.description || 'no description'}\n  exports: [${(entry.exports || []).join(', ')}]\n  imports: [${(entry.imports || []).join(', ')}]\n  importedBy: [${(entry.importedBy || []).join(', ')}]`
         )
-        .slice(0, 30)                                   // <-- NEW: cap at 30
+        .slice(0, 10)                                   // <-- NEW: cap at 30
         .join('\n');
 
       sysPrompt = `You are a senior software architect. Be concise.
