@@ -1,5 +1,5 @@
+================================================
 // js/handlers/useCommandHandler.js
-
 window.useCommandHandler = function useCommandHandler({
   provider, selectedModel, thinkingMode, reasoningEffort,
   currentRepo, currentBranch, setCurrentBranch,
@@ -19,11 +19,10 @@ window.useCommandHandler = function useCommandHandler({
   inputPrompt, setInputPrompt,
   loadManifest,
   manifest,
+  fileTree,
 }) {
-
   const { useRef } = React;
   const selfImproveRunning = useRef(false);
-
   const pushFileCard = (fileData) => {
     setMessages(prev => [...prev, {
       role: 'file',
@@ -32,7 +31,6 @@ window.useCommandHandler = function useCommandHandler({
       sha: fileData.sha,
     }]);
   };
-
   const pushDiffCard = (path, oldContent, newContent, commitSha) => {
     const diffLines = window.DiffUtils
       ? window.DiffUtils.computeDiff(oldContent, newContent)
@@ -45,14 +43,12 @@ window.useCommandHandler = function useCommandHandler({
       committed: true,
     }]);
   };
-
   const getLastFileCard = (path) => {
     const fileMessages = messages.filter(
       m => m.role === 'file' && m.path === path
     );
     return fileMessages[fileMessages.length - 1] || null;
   };
-
   const refreshTasks = async () => {
     // Phase 1C: use TaskQueue
     if (window.TaskQueue) {
@@ -69,7 +65,6 @@ window.useCommandHandler = function useCommandHandler({
       setOrchestratorTasks(tasks);
     }
   };
-
   const getSynthesisModel = () => {
     if (provider === 'deepseek') return selectedModel;
     const freeModels = (window.ModelRegistry?.FALLBACK_MODELS || [])
@@ -81,7 +76,6 @@ window.useCommandHandler = function useCommandHandler({
     }
     return freeModels[0]?.value || 'openrouter/auto';
   };
-
   const synthesiseSearchResults = async (query, results) => {
     const context = window.WebSearchService.formatForAI(results);
     try {
@@ -98,7 +92,6 @@ window.useCommandHandler = function useCommandHandler({
       return null;
     }
   };
-
   const orchArgs = () => ({
     repo: currentRepo,
     branch: currentBranch,
@@ -112,36 +105,30 @@ window.useCommandHandler = function useCommandHandler({
     systemPromptOverride,
     addToast,
     setMessages,
-    fileTree: [],
+    fileTree: fileTree || [],
     manifest,
   });
-
   const getLastFileContext = () => {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'file') return messages[i];
     }
     return null;
   };
-
   const executeSlashCommand = async (cmd, args, userText) => {
     switch (cmd) {
-
       case '/help':
         setMessages(prev => [...prev,
           { role: 'user', content: userText },
           { role: 'assistant', content: `**Available Commands:**\n${window.COMMANDS.map(c => `\`${c.cmd}\` — ${c.desc}`).join('\n')}\n\n💡 You can also describe intent naturally.` }
         ]);
         return true;
-
       case '/clear':
         setMessages([{ role: 'assistant', content: 'Chat cleared.' }]);
         return true;
-
       case '/fetch':
         fetchFileTree();
         setMessages(prev => [...prev, { role: 'user', content: userText }]);
         return true;
-
       case '/open': {
         if (!args) { addToast('Provide a file path', 'error'); return true; }
         setMessages(prev => [...prev, { role: 'user', content: userText }]);
@@ -149,7 +136,6 @@ window.useCommandHandler = function useCommandHandler({
         if (fileData) pushFileCard(fileData);
         return true;
       }
-
       case '/commit': {
         const lastFile = getLastFileContext();
         if (!lastFile) {
@@ -167,7 +153,6 @@ window.useCommandHandler = function useCommandHandler({
         }
         return true;
       }
-
       case '/learn':
         if (!args) { addToast('Provide rule', 'error'); return true; }
         addMemoryRule(args);
@@ -176,7 +161,6 @@ window.useCommandHandler = function useCommandHandler({
           { role: 'assistant', content: `🧠 Learned: ${args}` }
         ]);
         return true;
-
       case '/forget':
         clearMemory();
         setMessages(prev => [...prev,
@@ -184,7 +168,6 @@ window.useCommandHandler = function useCommandHandler({
           { role: 'assistant', content: 'Project memory cleared.' }
         ]);
         return true;
-
       case '/branch': {
         if (!args) { addToast('Specify branch name', 'error'); return true; }
         const success = await handleCreateBranch(args);
@@ -194,7 +177,6 @@ window.useCommandHandler = function useCommandHandler({
         ]);
         return true;
       }
-
       case '/pr': {
         const parts = args.split(' ');
         const title = parts[0]?.replace(/"/g, '') || '';
@@ -207,7 +189,6 @@ window.useCommandHandler = function useCommandHandler({
         ]);
         return true;
       }
-
       case '/switch': {
         if (!args) { addToast('Specify branch', 'error'); return true; }
         await handleSwitchBranch(args);
@@ -217,7 +198,6 @@ window.useCommandHandler = function useCommandHandler({
         ]);
         return true;
       }
-
       case '/search': {
         if (!args) { addToast('Enter a search query.', 'error'); return true; }
         setMessages(prev => [...prev, { role: 'user', content: userText }]);
@@ -252,7 +232,6 @@ window.useCommandHandler = function useCommandHandler({
         }
         return true;
       }
-
       case '/plan': {
         if (!args) { addToast('Provide a goal.', 'error'); return true; }
         setMessages(prev => [...prev, { role: 'user', content: userText }]);
@@ -262,7 +241,6 @@ window.useCommandHandler = function useCommandHandler({
         if (!planResult?.paused) setIsRunActive(false);
         return true;
       }
-
       case '/execute': {
         setMessages(prev => [...prev, { role: 'user', content: userText }]);
         setIsRunActive(true);
@@ -276,7 +254,6 @@ window.useCommandHandler = function useCommandHandler({
         if (!execResult?.paused) setIsRunActive(false);
         return true;
       }
-
       case '/review': {
         setMessages(prev => [...prev, { role: 'user', content: userText }]);
         setIsRunActive(true);
@@ -285,7 +262,6 @@ window.useCommandHandler = function useCommandHandler({
         if (!reviewResult?.paused) setIsRunActive(false);
         return true;
       }
-
       case '/autopilot': {
         window.Orchestrator.setMode('autopilot');
         setMessages(prev => [...prev,
@@ -294,7 +270,6 @@ window.useCommandHandler = function useCommandHandler({
         ]);
         return true;
       }
-
       case '/manual': {
         window.Orchestrator.setMode('manual');
         setMessages(prev => [...prev,
@@ -303,7 +278,6 @@ window.useCommandHandler = function useCommandHandler({
         ]);
         return true;
       }
-
       case '/pause': {
         if (window.Orchestrator && isRunActive) {
           window.Orchestrator.requestPause('user');
@@ -313,7 +287,6 @@ window.useCommandHandler = function useCommandHandler({
         }
         return true;
       }
-
       case '/tasks': {
         await refreshTasks();
         const oState = window.Orchestrator.getState();
@@ -326,7 +299,6 @@ window.useCommandHandler = function useCommandHandler({
         ]);
         return true;
       }
-
       case '/remember': {
         if (!args) { addToast('Provide a preference to remember', 'error'); return true; }
         setUserMemory(prev => [...prev, args]);
@@ -336,7 +308,6 @@ window.useCommandHandler = function useCommandHandler({
         ]);
         return true;
       }
-
       case '/forgetme': {
         setUserMemory([]);
         setMessages(prev => [...prev,
@@ -345,7 +316,6 @@ window.useCommandHandler = function useCommandHandler({
         ]);
         return true;
       }
-
       case '/myprefs': {
         setMessages(prev => [...prev,
           { role: 'user', content: userText },
@@ -356,7 +326,6 @@ window.useCommandHandler = function useCommandHandler({
         ]);
         return true;
       }
-
       case '/context': {
         if (window.ConversationMemory) {
           const ctx = window.ConversationMemory.get(currentRepo, currentBranch);
@@ -370,7 +339,6 @@ window.useCommandHandler = function useCommandHandler({
         }
         return true;
       }
-
       case '/rollback': {
         if (!currentRepo || !githubToken) { addToast('Missing repo or token', 'error'); return true; }
         try {
@@ -385,7 +353,6 @@ window.useCommandHandler = function useCommandHandler({
         }
         return true;
       }
-
       case '/self-improve': {
         if (!args) { addToast('Describe what to improve.', 'error'); return true; }
         if (selfImproveRunning.current) {
@@ -440,7 +407,6 @@ window.useCommandHandler = function useCommandHandler({
         })();
         return true;
       }
-
       case '/manifest-build': {
         if (!currentRepo || !githubToken) {
           addToast('Missing repo or token', 'error');
@@ -473,17 +439,14 @@ window.useCommandHandler = function useCommandHandler({
         }
         return true;
       }
-
       default:
         return false;
     }
   };
-
   const sendMessage = async (overrideText) => {
     const userText = (overrideText || inputPrompt).trim();
     if (!userText) return;
     setInputPrompt('');
-
     // Slash command – only proceed if recognised
     if (userText.startsWith('/')) {
       const parts = userText.split(' ');
@@ -498,7 +461,6 @@ window.useCommandHandler = function useCommandHandler({
       setInputPrompt('');
       return;
     }
-
     // Intent detection
     if (window.IntentDetector) {
       const intent = window.IntentDetector.detect(userText);
@@ -508,20 +470,16 @@ window.useCommandHandler = function useCommandHandler({
         if (await executeSlashCommand(parts[0], parts.slice(1).join(' '), userText)) return;
       }
     }
-
     // AI chat
     const newMessages = [...messages, { role: 'user', content: userText }];
     setMessages(newMessages);
-
     const lastFile = getLastFileContext();
     const fileBlock = lastFile
       ? `Active file: ${lastFile.path}\nContent:\n\`\`\`\n${lastFile.content.slice(0, 3000)}\n\`\`\``
       : 'No file currently open.';
-
     const memoryStr = projectMemory.length
       ? '\nPROJECT MEMORY:\n' + projectMemory.map((m, i) => `${i + 1}. ${m}`).join('\n')
       : '';
-
     let contextBlock = '';
     if (window.ConversationMemory) {
       const ctx = window.ConversationMemory.get(currentRepo, currentBranch);
@@ -529,26 +487,21 @@ window.useCommandHandler = function useCommandHandler({
         contextBlock = `\nCONVERSATION CONTEXT:\nGoal: ${ctx.goal || 'none'}\nDecisions: ${(ctx.decisions || []).join('; ') || 'none'}\nLast action: ${ctx.lastAction || 'none'}\n`;
       }
     }
-
     let sysPrompt = `You are an autonomous coding agent. Repo: ${currentRepo} (branch: ${currentBranch}).\n${fileBlock}${memoryStr}${contextBlock}\nUse <skill name="update_editor" file="path/to/file">FULL FILE CONTENT</skill> to propose file changes.\nUse <skill name="read_file" path="..."/> to request a file be loaded.`;
-
     if (systemPromptOverride && systemPromptOverride.trim()) {
       sysPrompt = systemPromptOverride + '\n\n' + sysPrompt;
     }
-
     const contextForRelevance = userText + ' ' + messages.slice(-2).map(m => m.content || '').join(' ');
     const relevantPrefs = window.ContextMatcher.selectRelevant(userMemory, contextForRelevance, 3);
     if (relevantPrefs.length) {
       sysPrompt += '\n\nRELEVANT USER PREFERENCES:\n' + relevantPrefs.map((p, i) => `${i + 1}. ${p}`).join('\n');
     }
-
     let userContent = userText;
     if (uploadedContext) {
       userContent = uploadedContext.type === 'image'
         ? [{ type: 'text', text: userText }, { type: 'image_url', image_url: { url: uploadedContext.data } }]
         : `${userText}\n\nAttached: ${uploadedContext.name}\n${uploadedContext.data}`;
     }
-
     try {
       await window.LLMProvider.chatCompletionStream({
         provider,
@@ -562,7 +515,6 @@ window.useCommandHandler = function useCommandHandler({
         onDone: async (fullContent, usedModel, reasoning) => {
           try {
             const { modifiedReply, actions } = window.processAgentSkills(fullContent || '');
-
             if (actions.updateEditorContent && actions.updateEditorFile) {
               const existingFile = getLastFileContext();
               const sha = (existingFile && existingFile.path === actions.updateEditorFile)
@@ -577,7 +529,6 @@ window.useCommandHandler = function useCommandHandler({
               }]);
               addToast('Agent proposed a file change — review and commit in chat', 'info');
             }
-
             const finalMessages = [...newMessages, {
               role: 'assistant',
               content: modifiedReply,
@@ -585,7 +536,6 @@ window.useCommandHandler = function useCommandHandler({
               reasoning_content: reasoning,
             }];
             setMessages(finalMessages);
-
             if (window.ConversationMemory) {
               window.ConversationMemory.onAssistantMessage(
                 modifiedReply, currentRepo, currentBranch
@@ -616,7 +566,6 @@ window.useCommandHandler = function useCommandHandler({
       setStreamingReasoning(null);
     }
   };
-
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -628,7 +577,6 @@ window.useCommandHandler = function useCommandHandler({
     });
     file.type.startsWith('image/') ? reader.readAsDataURL(file) : reader.readAsText(file);
   };
-
   return {
     sendMessage,
     handleFileUpload,
