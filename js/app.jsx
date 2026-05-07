@@ -93,6 +93,7 @@ function App() {
     orchestratorTasks,   setOrchestratorTasks,
     addToast,
     inputPrompt,         setInputPrompt,
+    loadManifest: workspace.loadManifest,
   });
 
   // ── onFileClick ───────────────────────────────────────────────
