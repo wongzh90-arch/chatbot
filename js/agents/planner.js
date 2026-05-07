@@ -23,7 +23,6 @@ window.PlannerAgent = (() => {
     const relevantExtensions = ['.js', '.jsx', '.ts', '.tsx', '.html', '.css', '.json'];
     const excludedDirs = ['node_modules', '.git', 'dist', 'build', '.next'];
 
-    // ── Reduced file list (20 files max) ─────────────────
     const filteredFiles = fileTree
       .filter(f => {
         const isExcluded = excludedDirs.some(d => f.path.startsWith(d));
@@ -31,25 +30,31 @@ window.PlannerAgent = (() => {
         return !isExcluded && isRelevant;
       })
       .map(f => f.path)
-      .slice(0, 10);                                    // <-- was 40
+      .slice(0, 10);
 
     let sysPrompt;
 
+    // ── Architecture summary from memory ─────────────────────
+    let archBlock = '';
+    if (window.ConversationMemory) {
+      const arch = window.ConversationMemory.getArchitecture(repo);
+      if (arch && arch.architecture) {
+        archBlock = `\n\n## ARCHITECTURE CONSTRAINTS (MUST FOLLOW)\n${arch.architecture}\n\n`;
+      }
+    }
+
     if (manifest) {
-      // ── Capped manifest list (30 modules max) ────────
       const moduleList = Object.entries(manifest)
         .map(([path, entry]) =>
           `- ${path} (${entry.lineCount} lines)\n  desc: ${entry.description || 'no description'}\n  exports: [${(entry.exports || []).join(', ')}]\n  imports: [${(entry.imports || []).join(', ')}]\n  importedBy: [${(entry.importedBy || []).join(', ')}]`
         )
-        .slice(0, 10)                                   // <-- NEW: cap at 30
+        .slice(0, 10)
         .join('\n');
 
       sysPrompt = `You are a senior software architect. Be concise.
 
 Repo: ${repo} (branch: ${branch})
-
-Goal: "${goal}"
-
+${archBlock}
 Project structure (from manifest):
 
 ${moduleList}
@@ -78,9 +83,7 @@ Rules:
       sysPrompt = `You are a senior software architect. Be concise.
 
 Repo: ${repo} (branch: ${branch})
-
-Goal: "${goal}"
-
+${archBlock}
 Key files:
 
 ${filteredFiles.join('\n')}
@@ -148,13 +151,12 @@ Rules:
 
     plan.tasks = plan.tasks.slice(0, 4);
 
-    // ── Phase 1C: Use in-memory queue instead of GitHub Issues ─────────
     window.TaskQueue.createMilestone(
       plan.milestone_title || `Goal: ${goal.substring(0, 50)}`,
       plan.analysis || ''
     );
 
-    const taskMap = []; // index -> task id for dependency resolution
+    const taskMap = [];
 
     for (let i = 0; i < plan.tasks.length; i++) {
       const t = plan.tasks[i];
@@ -177,7 +179,6 @@ Rules:
 
     addToast(`Plan created: ${createdTasks.length} tasks`, 'success');
 
-    // 🔥 Phase 0C: record plan creation in conversation memory
     if (window.ConversationMemory) {
       window.ConversationMemory.recordPlanCreated(repo, branch, goal);
     }
