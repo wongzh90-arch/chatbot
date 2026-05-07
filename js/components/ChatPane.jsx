@@ -1,4 +1,3 @@
-================================================
 // js/components/ChatPane.jsx
 // Updated: added theme prop and conditional styling
 window.ChatPane = ({
