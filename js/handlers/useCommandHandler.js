@@ -484,10 +484,19 @@ window.useCommandHandler = function useCommandHandler({
     if (!userText) return;
     setInputPrompt('');
 
-    // Slash command
+    // Slash command – only proceed if recognised
     if (userText.startsWith('/')) {
       const parts = userText.split(' ');
-      if (await executeSlashCommand(parts[0].toLowerCase(), parts.slice(1).join(' '), userText)) return;
+      const handled = await executeSlashCommand(parts[0].toLowerCase(), parts.slice(1).join(' '), userText);
+      if (handled) return;
+      // Unknown slash command – show error and stop
+      setMessages(prev => [
+        ...prev,
+        { role: 'user', content: userText },
+        { role: 'assistant', content: `❌ Unknown command \`${parts[0]}\`. Type \`/help\` for a list.` }
+      ]);
+      setInputPrompt('');
+      return;
     }
 
     // Intent detection
