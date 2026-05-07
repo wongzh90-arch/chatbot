@@ -120,6 +120,7 @@ window.useCommandHandler = function useCommandHandler({
     addToast,
     setMessages,
     fileTree:            [],
+    manifest,
   });
 
   // ── Build last-file context for AI prompt ─────────────────────
