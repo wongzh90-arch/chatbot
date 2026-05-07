@@ -27,7 +27,7 @@ window.useCommandHandler = function useCommandHandler({
   // UI
   addToast,
   inputPrompt, setInputPrompt,
-  loadManifest,
+  manifest,
 }) {
   const { useRef } = React;
   const selfImproveRunning = useRef(false);
