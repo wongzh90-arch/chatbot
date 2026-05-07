@@ -51,8 +51,9 @@ function AppContent() {
       return () => clearTimeout(t);
     } else {
       setActiveTab('chat');
+      setTimeout(() => conversation.scrollToBottom(), 50);
     }
-  }, [conversation.isRunActive]);
+  }, [conversation.isRunActive])
   
   // ── GitHub actions ────────────────────────────────────────────
   const github = window.useGitHubActions({
