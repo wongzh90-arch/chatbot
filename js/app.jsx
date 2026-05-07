@@ -44,12 +44,6 @@ function AppContent() {
   useEffect(() => {
     localStorage.setItem('USER_MEMORY', JSON.stringify(userMemory));
   }, [userMemory]);
-  // ── Load manifest whenever repo/branch changes ────────────────
-  useEffect(() => {
-    if (workspace.currentRepo && workspace.currentBranch && workspace.githubToken) {
-      workspace.loadManifest();
-    }
-  }, [workspace.currentRepo, workspace.currentBranch, workspace.githubToken]);
   // ── GitHub actions ────────────────────────────────────────────
   const github = window.useGitHubActions({
     currentRepo: workspace.currentRepo,
@@ -83,6 +77,7 @@ function AppContent() {
     setUploadedContext: conversation.setUploadedContext,
     setStreamingMessage: conversation.setStreamingMessage,
     setStreamingReasoning: conversation.setStreamingReasoning,
+    setStatusMessage: conversation.setStatusMessage,
     isRunActive: conversation.isRunActive,
     setIsRunActive: conversation.setIsRunActive,
     fetchFileTree: github.fetchFileTree,
@@ -97,8 +92,6 @@ function AppContent() {
     addToast,
     inputPrompt, setInputPrompt,
     manifest: workspace.manifest,
-    loadManifest: workspace.loadManifest,
-    fileTree: github.fileTree,
   });
   // ── onFileClick ───────────────────────────────────────────────
   const handleFileClick = async (path) => {
@@ -234,6 +227,7 @@ function AppContent() {
           chatScrollRef: conversation.chatScrollRef,
           inputRef: conversation.inputRef,
           streamingMessage: conversation.streamingMessage,
+          statusMessage: conversation.statusMessage,
           isRunActive: conversation.isRunActive,
           onPause: () => {
             if (window.Orchestrator) window.Orchestrator.requestPause('user');
