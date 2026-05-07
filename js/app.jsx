@@ -1,4 +1,3 @@
-================================================
 // js/app.jsx --- composition root, no business logic.
 // Added: ThemeProvider wrapper, theme-aware root, sidebar, and prop passing.
 const { useState, useEffect } = React;
