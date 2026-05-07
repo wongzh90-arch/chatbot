@@ -452,7 +452,7 @@ window.useCommandHandler = function useCommandHandler({
         }
         return true;
       }
-      // ========== NEW COMMAND ==========
+      // ========== NEW COMMAND: /analyze-arch ==========
       case '/analyze-arch': {
         if (!currentRepo || !githubToken) {
           addToast('Missing repo or token', 'error');
@@ -462,12 +462,18 @@ window.useCommandHandler = function useCommandHandler({
         setStatus('🏛️ Analysing architecture...');
         addToast('Loading key modules to understand architecture (this may take a moment)...', 'info');
         try {
-          // 1. Ensure manifest exists
-          let currentManifest = manifest;
+          // 1. Fetch the latest manifest.json directly (bypass stale closure)
+          let currentManifest = null;
+          try {
+            const manifestFile = await loadFile('manifest.json');
+            if (manifestFile && manifestFile.content) {
+              currentManifest = JSON.parse(manifestFile.content);
+            }
+          } catch (e) {
+            // manifest may not exist
+          }
           if (!currentManifest) {
-            addToast('No manifest found. Running /manifest-build first...', 'warning');
-            // trigger manifest build silently? For simplicity, ask user to run it manually.
-            setMessages(prev => [...prev, { role: 'assistant', content: 'Please run `/manifest-build` first to create the module manifest.' }]);
+            setMessages(prev => [...prev, { role: 'assistant', content: 'No manifest found. Please run `/manifest-build` first.' }]);
             setStatus('');
             return true;
           }
@@ -479,7 +485,7 @@ window.useCommandHandler = function useCommandHandler({
           const coreFiles = ['js/app.jsx', 'js/components/Navbar.jsx', 'js/components/LeftPane.jsx', 'js/components/ChatPane.jsx'];
           const toLoad = [...new Set([...coreFiles, ...importantPaths])].slice(0, 12);
 
-          // 3. Load content (truncated to 4000 chars each to save tokens)
+          // 3. Load content (truncated to 4000 chars each)
           const fileContents = [];
           for (const path of toLoad) {
             try {
