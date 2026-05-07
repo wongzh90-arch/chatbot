@@ -10,6 +10,8 @@ window.ChatPane = ({
   streamingMessage,
   conversationId,
   statusMessage,
+  isRunActive,
+  onPause,
 }) => {
   // ── Missing definitions added ──────────────────────────────
   const textareaRef = React.useRef(null);
