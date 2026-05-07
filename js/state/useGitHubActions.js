@@ -1,9 +1,9 @@
+================================================
 // js/state/useGitHubActions.js
 // Owns: file tree, GitHub read/write operations.
 // NOTE: activeFilePath / activeFileContent / fileSha are GONE.
 //       loadFile() now returns { path, content, sha } — caller pushes to messages.
 //       commitChange() takes explicit (path, content, sha, message) args.
-
 window.useGitHubActions = function useGitHubActions({
   currentRepo,
   currentBranch,
@@ -14,15 +14,12 @@ window.useGitHubActions = function useGitHubActions({
   addToast,
 }) {
   const { useState } = React;
-
   const [fileTree,          setFileTree]          = useState([]);
   const [isLoading,         setIsLoading]         = useState(false);
   const [recentlyModified,  setRecentlyModified]  = useState(() => new Set());
-
   const markModified = (path) => {
     setRecentlyModified(prev => new Set([...prev, path]));
   };
-
   // ── File tree ─────────────────────────────────────────────────
   const fetchFileTree = async () => {
     if (!currentRepo || !githubToken) {
@@ -42,7 +39,6 @@ window.useGitHubActions = function useGitHubActions({
       setIsLoading(false);
     }
   };
-
   // ── Load single file — returns content, does NOT set state ────
   const loadFile = async (path) => {
     setIsLoading(true);
@@ -58,7 +54,6 @@ window.useGitHubActions = function useGitHubActions({
       setIsLoading(false);
     }
   };
-
   // ── Commit a single file explicitly ──────────────────────────
   // Returns { newSha } on success, null on failure
   const commitChange = async (path, content, sha, customMessage) => {
@@ -71,7 +66,6 @@ window.useGitHubActions = function useGitHubActions({
       );
       markModified(path);
       addToast(`Committed ${path.split('/').pop()}`, 'success');
-
       if (workspace === 'self' && deployHook) {
         try {
           await fetch(deployHook, { method: 'POST' });
@@ -80,7 +74,6 @@ window.useGitHubActions = function useGitHubActions({
           addToast('Deploy hook failed', 'error');
         }
       }
-
       return { newSha: result.content.sha };
     } catch (e) {
       addToast(e.message, 'error');
@@ -89,19 +82,46 @@ window.useGitHubActions = function useGitHubActions({
       setIsLoading(false);
     }
   };
-
-  // ── Stub for Phase 1D: multi-file atomic commit ───────────────
-  // fileMap: { [path]: { content, sha } }
-  // Sequential for now — replaced atomically in 1D (Git Trees API)
+  // ── Phase 1D: multi-file atomic commit via Git Trees API ─────
+  // fileMap: { [path]: { content: string } }
+  // Returns { commitSha, filesCommitted } on success, null on failure.
   const commitMultipleFiles = async (fileMap, message) => {
-    const results = {};
-    for (const [path, { content, sha }] of Object.entries(fileMap)) {
-      const result = await commitChange(path, content, sha, message);
-      if (result) results[path] = result.newSha;
+    if (!fileMap || Object.keys(fileMap).length === 0) {
+      addToast('commitMultipleFiles: empty fileMap', 'error');
+      return null;
     }
-    return results;
+    // Single-file shortcut — avoid extra API calls
+    const paths = Object.keys(fileMap);
+    if (paths.length === 1) {
+      const [path] = paths;
+      const { content, sha } = fileMap[path];
+      const result = await commitChange(path, content, sha, message);
+      if (!result) return null;
+      return { commitSha: result.newSha, filesCommitted: [path] };
+    }
+    setIsLoading(true);
+    try {
+      const result = await window.GitHubService.commitMultipleFiles(
+        currentRepo, currentBranch, fileMap, message || 'Agent: multi-file update', githubToken
+      );
+      paths.forEach(p => markModified(p));
+      addToast(`Committed ${paths.length} files atomically`, 'success');
+      if (workspace === 'self' && deployHook) {
+        try {
+          await fetch(deployHook, { method: 'POST' });
+          addToast('Redeploy triggered!', 'success');
+        } catch {
+          addToast('Deploy hook failed', 'error');
+        }
+      }
+      return result;
+    } catch (e) {
+      addToast(`Multi-file commit failed: ${e.message}`, 'error');
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
   };
-
   // ── Branch operations ─────────────────────────────────────────
   const handleCreateBranch = async (branchName) => {
     try {
@@ -117,7 +137,6 @@ window.useGitHubActions = function useGitHubActions({
       return false;
     }
   };
-
   const handleSwitchBranch = async (branch) => {
     const exists = await window.GitHubService.branchExists(
       currentRepo, branch, githubToken
@@ -129,7 +148,6 @@ window.useGitHubActions = function useGitHubActions({
     fetchFileTree();
     addToast(`Switched to ${branch}`, 'success');
   };
-
   const handleCreatePR = async (title, base) => {
     try {
       const pr = await window.GitHubService.createPullRequest(
@@ -142,7 +160,6 @@ window.useGitHubActions = function useGitHubActions({
       return null;
     }
   };
-
   return {
     fileTree,
     isLoading,
