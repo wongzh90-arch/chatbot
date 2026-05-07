@@ -46,8 +46,12 @@ function AppContent() {
   }, [userMemory]);
   // ADD after the existing useEffects, before the GitHub actions block:
   useEffect(() => {
-    if (conversation.isRunActive) setActiveTab('tasks');
-    else setActiveTab('chat');
+    if (conversation.isRunActive) {
+      const t = setTimeout(() => setActiveTab('tasks'), 1200);
+      return () => clearTimeout(t);
+    } else {
+      setActiveTab('chat');
+    }
   }, [conversation.isRunActive]);
   
   // ── GitHub actions ────────────────────────────────────────────
