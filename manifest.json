@@ -1,11 +1,12 @@
 {
   "js/agents/executor.js": {
-    "description": "🔥 Phase 0C: record task failure",
+    "description": "js/agents/executor.js",
     "exports": [
       "ExecutorAgent"
     ],
     "imports": [
-      "TaskManager",
+      "TaskQueue",
+      "ContextBuilder",
       "GitHubService",
       "ContextMatcher",
       "LLMProvider",
@@ -14,8 +15,8 @@
     "importedBy": [
       "js/agents/orchestrator.js"
     ],
-    "lineCount": 238,
-    "lastUpdated": "2026-05-07T00:57:22.795Z"
+    "lineCount": 236,
+    "lastUpdated": "2026-05-07T01:38:21.274Z"
   },
   "js/agents/orchestrator.js": {
     "description": "js/agents/orchestrator.js",
@@ -23,8 +24,8 @@
       "Orchestrator"
     ],
     "imports": [
+      "TaskQueue",
       "PlannerAgent",
-      "TaskManager",
       "ExecutorAgent",
       "ReviewerAgent",
       "ConversationMemory"
@@ -33,42 +34,43 @@
       "js/app.jsx",
       "js/handlers/useCommandHandler.js"
     ],
-    "lineCount": 344,
-    "lastUpdated": "2026-05-07T00:57:22.797Z"
+    "lineCount": 360,
+    "lastUpdated": "2026-05-07T01:38:21.274Z"
   },
   "js/agents/planner.js": {
-    "description": "🔥 Phase 0C: record plan creation in conversation memory",
+    "description": "js/agents/planner.js",
     "exports": [
       "PlannerAgent"
     ],
     "imports": [
       "ContextMatcher",
       "LLMProvider",
-      "TaskManager",
+      "TaskQueue",
       "ConversationMemory"
     ],
     "importedBy": [
       "js/agents/orchestrator.js"
     ],
-    "lineCount": 136,
-    "lastUpdated": "2026-05-07T00:57:22.797Z"
+    "lineCount": 185,
+    "lastUpdated": "2026-05-07T01:38:21.274Z"
   },
   "js/agents/reviewer.js": {
-    "description": "Only review tasks that are DONE and haven't been reviewed in this cycle.",
+    "description": "js/agents/reviewer.js",
     "exports": [
       "ReviewerAgent"
     ],
     "imports": [
-      "TaskManager",
+      "TaskQueue",
       "GitHubService",
+      "ContextBuilder",
       "ContextMatcher",
       "LLMProvider"
     ],
     "importedBy": [
       "js/agents/orchestrator.js"
     ],
-    "lineCount": 152,
-    "lastUpdated": "2026-05-07T00:57:22.797Z"
+    "lineCount": 154,
+    "lastUpdated": "2026-05-07T01:38:21.274Z"
   },
   "js/app.jsx": {
     "description": "js/app.jsx — composition root, no business logic.",
@@ -78,10 +80,10 @@
     ],
     "importedBy": [],
     "lineCount": 244,
-    "lastUpdated": "2026-05-07T00:57:22.797Z"
+    "lastUpdated": "2026-05-07T01:38:21.274Z"
   },
   "js/components/ChatPane.jsx": {
-    "description": "Header",
+    "description": "js/components/ChatPane.jsx",
     "exports": [
       "ChatPane"
     ],
@@ -90,18 +92,20 @@
       "WebSearchService"
     ],
     "importedBy": [],
-    "lineCount": 242,
-    "lastUpdated": "2026-05-07T00:57:22.797Z"
+    "lineCount": 249,
+    "lastUpdated": "2026-05-07T01:38:21.274Z"
   },
   "js/components/LeftPane.jsx": {
-    "description": null,
+    "description": "js/components/LeftPane.jsx",
     "exports": [
       "LeftPane"
     ],
-    "imports": [],
+    "imports": [
+      "TaskQueue"
+    ],
     "importedBy": [],
-    "lineCount": 36,
-    "lastUpdated": "2026-05-07T00:57:22.797Z"
+    "lineCount": 77,
+    "lastUpdated": "2026-05-07T01:38:21.274Z"
   },
   "js/components/Navbar.jsx": {
     "description": "Brand",
@@ -111,7 +115,7 @@
     "imports": [],
     "importedBy": [],
     "lineCount": 222,
-    "lastUpdated": "2026-05-07T00:57:22.797Z"
+    "lastUpdated": "2026-05-07T01:38:21.275Z"
   },
   "js/handlers/useCommandHandler.js": {
     "description": "js/handlers/useCommandHandler.js",
@@ -120,20 +124,21 @@
     ],
     "imports": [
       "DiffUtils",
+      "TaskQueue",
       "Orchestrator",
       "TaskManager",
       "WebSearchService",
       "LLMProvider",
       "COMMANDS",
-      "GitHubService",
       "ConversationMemory",
+      "GitHubService",
       "ManifestParser",
       "IntentDetector",
       "ContextMatcher"
     ],
     "importedBy": [],
-    "lineCount": 717,
-    "lastUpdated": "2026-05-07T00:57:22.797Z"
+    "lineCount": 632,
+    "lastUpdated": "2026-05-07T01:38:21.275Z"
   },
   "js/services/conversationMemory.js": {
     "description": "js/services/conversationMemory.js",
@@ -149,7 +154,7 @@
       "js/state/useConversationState.js"
     ],
     "lineCount": 129,
-    "lastUpdated": "2026-05-07T00:57:22.797Z"
+    "lastUpdated": "2026-05-07T01:38:21.275Z"
   },
   "js/services/github.js": {
     "description": null,
@@ -165,7 +170,7 @@
       "js/state/useWorkspaceState.js"
     ],
     "lineCount": 106,
-    "lastUpdated": "2026-05-07T00:57:22.797Z"
+    "lastUpdated": "2026-05-07T01:38:21.275Z"
   },
   "js/services/llmProvider.js": {
     "description": "---------- non‑streaming ----------",
@@ -182,7 +187,7 @@
       "js/utils/sanityCheck.js"
     ],
     "lineCount": 109,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lastUpdated": "2026-05-07T01:38:21.276Z"
   },
   "js/services/modelRegistry.js": {
     "description": "Hardcoded fallback that works without any API call",
@@ -194,7 +199,7 @@
       "js/state/useProviderState.js"
     ],
     "lineCount": 30,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lastUpdated": "2026-05-07T01:38:21.276Z"
   },
   "js/services/openrouter.js": {
     "description": "Simulates streaming by progressively revealing text",
@@ -204,7 +209,7 @@
     "imports": [],
     "importedBy": [],
     "lineCount": 86,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lastUpdated": "2026-05-07T01:38:21.276Z"
   },
   "js/services/taskManager.js": {
     "description": "422 = milestone already exists with this title — find it and reuse",
@@ -213,14 +218,27 @@
     ],
     "imports": [],
     "importedBy": [
+      "js/handlers/useCommandHandler.js"
+    ],
+    "lineCount": 208,
+    "lastUpdated": "2026-05-07T01:38:21.276Z"
+  },
+  "js/services/taskQueue.js": {
+    "description": "js/services/taskQueue.js",
+    "exports": [
+      "TaskQueue"
+    ],
+    "imports": [],
+    "importedBy": [
       "js/agents/executor.js",
       "js/agents/orchestrator.js",
       "js/agents/planner.js",
       "js/agents/reviewer.js",
+      "js/components/LeftPane.jsx",
       "js/handlers/useCommandHandler.js"
     ],
-    "lineCount": 208,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lineCount": 111,
+    "lastUpdated": "2026-05-07T01:38:21.276Z"
   },
   "js/services/webSearch.js": {
     "description": "Search the web using Firecrawl (via Netlify proxy).",
@@ -233,7 +251,7 @@
       "js/handlers/useCommandHandler.js"
     ],
     "lineCount": 59,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lastUpdated": "2026-05-07T01:38:21.276Z"
   },
   "js/state/useConversationState.js": {
     "description": "js/state/useConversationState.js",
@@ -245,7 +263,7 @@
     ],
     "importedBy": [],
     "lineCount": 129,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lastUpdated": "2026-05-07T01:38:21.276Z"
   },
   "js/state/useGitHubActions.js": {
     "description": "js/state/useGitHubActions.js",
@@ -257,7 +275,7 @@
     ],
     "importedBy": [],
     "lineCount": 159,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lastUpdated": "2026-05-07T01:38:21.276Z"
   },
   "js/state/useProviderState.js": {
     "description": "js/state/useProviderState.js",
@@ -269,7 +287,7 @@
     ],
     "importedBy": [],
     "lineCount": 80,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lastUpdated": "2026-05-07T01:38:21.276Z"
   },
   "js/state/useWorkspaceState.js": {
     "description": "js/state/useWorkspaceState.js",
@@ -281,7 +299,7 @@
     ],
     "importedBy": [],
     "lineCount": 78,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lastUpdated": "2026-05-07T01:38:21.276Z"
   },
   "js/utils/ErrorBoundary.jsx": {
     "description": null,
@@ -291,7 +309,7 @@
     "imports": [],
     "importedBy": [],
     "lineCount": 32,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lastUpdated": "2026-05-07T01:38:21.276Z"
   },
   "js/utils/agentSkills.js": {
     "description": "js/utils/agentSkills.js",
@@ -301,7 +319,7 @@
     "imports": [],
     "importedBy": [],
     "lineCount": 78,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lastUpdated": "2026-05-07T01:38:21.276Z"
   },
   "js/utils/commands.js": {
     "description": "js/utils/commands.js",
@@ -313,7 +331,20 @@
       "js/handlers/useCommandHandler.js"
     ],
     "lineCount": 30,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lastUpdated": "2026-05-07T01:38:21.276Z"
+  },
+  "js/utils/contextBuilder.js": {
+    "description": "js/utils/contextBuilder.js",
+    "exports": [
+      "ContextBuilder"
+    ],
+    "imports": [],
+    "importedBy": [
+      "js/agents/executor.js",
+      "js/agents/reviewer.js"
+    ],
+    "lineCount": 131,
+    "lastUpdated": "2026-05-07T01:38:21.276Z"
   },
   "js/utils/contextMatcher.js": {
     "description": "Select the most relevant preferences for a given context.",
@@ -328,7 +359,7 @@
       "js/handlers/useCommandHandler.js"
     ],
     "lineCount": 32,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lastUpdated": "2026-05-07T01:38:21.276Z"
   },
   "js/utils/diffUtils.js": {
     "description": "js/utils/diffUtils.js",
@@ -340,7 +371,7 @@
       "js/handlers/useCommandHandler.js"
     ],
     "lineCount": 118,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lastUpdated": "2026-05-07T01:38:21.276Z"
   },
   "js/utils/intentDetector.js": {
     "description": "Search",
@@ -353,7 +384,7 @@
       "js/handlers/useCommandHandler.js"
     ],
     "lineCount": 172,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lastUpdated": "2026-05-07T01:38:21.277Z"
   },
   "js/utils/manifestParser.js": {
     "description": "js/utils/manifestParser.js",
@@ -370,7 +401,7 @@
       "js/utils/manifestParser.js"
     ],
     "lineCount": 228,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lastUpdated": "2026-05-07T01:38:21.277Z"
   },
   "js/utils/markdown.js": {
     "description": null,
@@ -380,7 +411,7 @@
     "imports": [],
     "importedBy": [],
     "lineCount": 39,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lastUpdated": "2026-05-07T01:38:21.277Z"
   },
   "js/utils/sanityCheck.js": {
     "description": null,
@@ -392,6 +423,6 @@
     ],
     "importedBy": [],
     "lineCount": 23,
-    "lastUpdated": "2026-05-07T00:57:22.798Z"
+    "lastUpdated": "2026-05-07T01:38:21.277Z"
   }
 }
