@@ -53,13 +53,11 @@ window.useCommandHandler = function useCommandHandler({
     return fileMessages[fileMessages.length - 1] || null;
   };
   const refreshTasks = async () => {
-    // Phase 1C: use TaskQueue
     if (window.TaskQueue) {
       const state = window.TaskQueue.getState();
       setOrchestratorTasks(state.tasks);
       return;
     }
-    // fallback to GitHub if TaskQueue not loaded (shouldn't happen)
     const oState = window.Orchestrator.getState();
     if (oState.milestone) {
       const tasks = await window.TaskManager.getTasksByMilestone(
@@ -451,6 +449,89 @@ window.useCommandHandler = function useCommandHandler({
           setStatus('');
           addToast(`Manifest build failed: ${e.message}`, 'error');
           setMessages(prev => [...prev, { role: 'assistant', content: `❌ Manifest build failed: ${e.message}` }]);
+        }
+        return true;
+      }
+      // ========== NEW COMMAND ==========
+      case '/analyze-arch': {
+        if (!currentRepo || !githubToken) {
+          addToast('Missing repo or token', 'error');
+          return true;
+        }
+        setMessages(prev => [...prev, { role: 'user', content: userText }]);
+        setStatus('🏛️ Analysing architecture...');
+        addToast('Loading key modules to understand architecture (this may take a moment)...', 'info');
+        try {
+          // 1. Ensure manifest exists
+          let currentManifest = manifest;
+          if (!currentManifest) {
+            addToast('No manifest found. Running /manifest-build first...', 'warning');
+            // trigger manifest build silently? For simplicity, ask user to run it manually.
+            setMessages(prev => [...prev, { role: 'assistant', content: 'Please run `/manifest-build` first to create the module manifest.' }]);
+            setStatus('');
+            return true;
+          }
+
+          // 2. Select important files: those with highest importedBy count + core UI files
+          const entries = Object.entries(currentManifest);
+          const sorted = entries.sort((a, b) => (b[1].importedBy?.length || 0) - (a[1].importedBy?.length || 0));
+          const importantPaths = sorted.slice(0, 8).map(([path]) => path);
+          const coreFiles = ['js/app.jsx', 'js/components/Navbar.jsx', 'js/components/LeftPane.jsx', 'js/components/ChatPane.jsx'];
+          const toLoad = [...new Set([...coreFiles, ...importantPaths])].slice(0, 12);
+
+          // 3. Load content (truncated to 4000 chars each to save tokens)
+          const fileContents = [];
+          for (const path of toLoad) {
+            try {
+              const data = await loadFile(path);
+              if (data) {
+                fileContents.push({ path, content: data.content.slice(0, 4000) });
+              }
+            } catch (e) { /* ignore */ }
+          }
+          if (fileContents.length === 0) throw new Error('Could not load any source files');
+
+          // 4. Build prompt for LLM
+          const filesBlock = fileContents.map(f => `--- ${f.path} ---\n${f.content}\n`).join('\n');
+          const archPrompt = `You are analysing a React web app that runs without a module bundler (no Webpack/Vite). All code is loaded via <script> tags and uses global window objects.
+
+For each file below, answer in ONE sentence:
+- Does it attach to window (e.g., window.Component = ...)?
+- Does it use React.createElement directly or JSX (assume JSX is transformed by Babel in the browser)?
+- Does it assume a module bundler (import/export statements)?
+- How is it rendered or called by other files?
+
+Then write a 2-3 sentence overall architecture description that explains how to add a new component correctly.
+
+Files:
+${filesBlock}`;
+
+          const reply = await window.LLMProvider.chatCompletion({
+            provider, model: selectedModel,
+            messages: [],
+            systemPrompt: 'You are a code architect. Be extremely concise. No markdown, just plain text.',
+            userContent: archPrompt,
+            thinkingMode: false,
+          });
+
+          // 5. Store result
+          const archSummary = {
+            architecture: reply.content.split('\n\n')[0] || reply.content.slice(0, 500),
+            rawAnalysis: reply.content,
+            updatedAt: new Date().toISOString(),
+          };
+          window.ConversationMemory.setArchitecture(currentRepo, archSummary);
+
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `🏛️ **Architecture analysis complete.**\n\n${archSummary.architecture}\n\nThe planner will now respect these constraints when you run \`/plan\`.`
+          }]);
+          addToast('Architecture saved to memory', 'success');
+        } catch (err) {
+          addToast(`Analysis failed: ${err.message}`, 'error');
+          setMessages(prev => [...prev, { role: 'assistant', content: `❌ ${err.message}` }]);
+        } finally {
+          setStatus('');
         }
         return true;
       }
