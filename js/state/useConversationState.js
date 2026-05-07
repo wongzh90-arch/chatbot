@@ -53,10 +53,13 @@ window.useConversationState = function useConversationState() {
     localStorage.setItem(`LOCAL_MSGS_${activeConversationId}`, JSON.stringify(messages));
   }, [messages, activeConversationId]);
   // ── Auto-scroll on new messages / streaming ───────────────────
-  useEffect(() => {
+  const scrollToBottom = () => {
     if (chatScrollRef.current) {
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
+  };
+  useEffect(() => {
+    scrollToBottom();
   }, [messages, streamingMessage]);
   // ── Conversation management ───────────────────────────────────
   const createNewConversation = () => {
