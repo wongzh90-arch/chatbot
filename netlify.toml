@@ -10,3 +10,6 @@
 
 [functions."openrouter-proxy"]
   timeout = 30
+
+[build.environment]
+  NODE_VERSION = "18"
