@@ -266,12 +266,12 @@ window.useCommandHandler = function useCommandHandler({
       }
 
       case '/plan': {
-        if (!args) { addToast('Provide a goal.', 'error'); return true; }
-        setIsRunActive(true);
-        await window.Orchestrator.runPlanPhase({ ...orchArgs(), goal: args });
-        await refreshTasks();
-        setIsRunActive(false);
-        return true;
+          if (!args) { addToast('Provide a goal.', 'error'); return true; }
+          setIsRunActive(true);
+          const planResult = await window.Orchestrator.runPlanPhase({ ...orchArgs(), goal: args });
+          await refreshTasks();
+          if (!planResult?.paused) setIsRunActive(false);
+          return true;
       }
 
       case '/rollback': {
