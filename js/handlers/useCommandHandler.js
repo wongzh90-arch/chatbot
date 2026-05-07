@@ -1,64 +1,51 @@
 // js/handlers/useCommandHandler.js
-// Owns: slash command routing, sendMessage, intent detection.
-// No editor state — loadFile pushes { role:'file' } cards into messages.
-// commitChange takes explicit (path, content, sha, message?) args.
 
 window.useCommandHandler = function useCommandHandler({
-  // Provider
   provider, selectedModel, thinkingMode, reasoningEffort,
-  // Workspace
   currentRepo, currentBranch, setCurrentBranch,
   githubToken, systemPromptOverride,
-  // Conversation
   messages, setMessages,
   uploadedContext, setUploadedContext,
   setStreamingMessage, setStreamingReasoning,
   isRunActive, setIsRunActive,
-  // GitHub actions (0B interface — no editor state)
   fetchFileTree,
-  loadFile,          // (path) => Promise<{ path, content, sha } | null>
-  commitChange,      // (path, content, sha, message?) => Promise<{ newSha } | null>
+  loadFile,
+  commitChange,
   handleCreateBranch, handleSwitchBranch, handleCreatePR,
-  // Memory
   projectMemory, addMemoryRule, clearMemory,
   userMemory, setUserMemory,
-  // Orchestrator tasks
   orchestratorTasks, setOrchestratorTasks,
-  // UI
   addToast,
   inputPrompt, setInputPrompt,
+  loadManifest,
   manifest,
 }) {
+
   const { useRef } = React;
   const selfImproveRunning = useRef(false);
 
-  // ── Helpers ───────────────────────────────────────────────────
-
-  // Push a file card into the chat stream
   const pushFileCard = (fileData) => {
     setMessages(prev => [...prev, {
       role: 'file',
-      path:    fileData.path,
+      path: fileData.path,
       content: fileData.content,
-      sha:     fileData.sha,
+      sha: fileData.sha,
     }]);
   };
 
-  // Push a diff card into the chat stream
   const pushDiffCard = (path, oldContent, newContent, commitSha) => {
     const diffLines = window.DiffUtils
       ? window.DiffUtils.computeDiff(oldContent, newContent)
       : [];
     setMessages(prev => [...prev, {
-      role:       'diff',
+      role: 'diff',
       path,
       diffLines,
       commitSha,
-      committed:  true,
+      committed: true,
     }]);
   };
 
-  // Find the most recent file card for a given path (for commit)
   const getLastFileCard = (path) => {
     const fileMessages = messages.filter(
       m => m.role === 'file' && m.path === path
@@ -67,6 +54,13 @@ window.useCommandHandler = function useCommandHandler({
   };
 
   const refreshTasks = async () => {
+    // Phase 1C: use TaskQueue
+    if (window.TaskQueue) {
+      const state = window.TaskQueue.getState();
+      setOrchestratorTasks(state.tasks);
+      return;
+    }
+    // fallback to GitHub if TaskQueue not loaded (shouldn't happen)
     const oState = window.Orchestrator.getState();
     if (oState.milestone) {
       const tasks = await window.TaskManager.getTasksByMilestone(
@@ -105,13 +99,12 @@ window.useCommandHandler = function useCommandHandler({
     }
   };
 
-  // ── Shared orchestrator args ──────────────────────────────────
   const orchArgs = () => ({
-    repo:                currentRepo,
-    branch:              currentBranch,
+    repo: currentRepo,
+    branch: currentBranch,
     githubToken,
     provider,
-    model:               selectedModel,
+    model: selectedModel,
     thinkingMode,
     reasoningEffort,
     projectMemory,
@@ -119,12 +112,10 @@ window.useCommandHandler = function useCommandHandler({
     systemPromptOverride,
     addToast,
     setMessages,
-    fileTree:            [],
+    fileTree: [],
     manifest,
   });
 
-  // ── Build last-file context for AI prompt ─────────────────────
-  // Replaces the old activeFileContent — uses the last file card in messages
   const getLastFileContext = () => {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'file') return messages[i];
@@ -132,7 +123,6 @@ window.useCommandHandler = function useCommandHandler({
     return null;
   };
 
-  // ── Slash command router ──────────────────────────────────────
   const executeSlashCommand = async (cmd, args, userText) => {
     switch (cmd) {
 
@@ -153,7 +143,6 @@ window.useCommandHandler = function useCommandHandler({
         return true;
 
       case '/open': {
-        // /open <path> — load a file and push it as a file card
         if (!args) { addToast('Provide a file path', 'error'); return true; }
         setMessages(prev => [...prev, { role: 'user', content: userText }]);
         const fileData = await loadFile(args);
@@ -162,7 +151,6 @@ window.useCommandHandler = function useCommandHandler({
       }
 
       case '/commit': {
-        // /commit [message] — commits the last open file card in chat
         const lastFile = getLastFileContext();
         if (!lastFile) {
           addToast('No file loaded in chat. Use /open <path> first.', 'error');
@@ -210,7 +198,7 @@ window.useCommandHandler = function useCommandHandler({
       case '/pr': {
         const parts = args.split(' ');
         const title = parts[0]?.replace(/"/g, '') || '';
-        const base  = parts[1] || null;
+        const base = parts[1] || null;
         if (!title) { addToast('Provide PR title', 'error'); return true; }
         const url = await handleCreatePR(title, base);
         setMessages(prev => [...prev,
@@ -233,7 +221,7 @@ window.useCommandHandler = function useCommandHandler({
       case '/search': {
         if (!args) { addToast('Enter a search query.', 'error'); return true; }
         setMessages(prev => [...prev, { role: 'user', content: userText }]);
-        addToast('🔍 Searching…', 'info');
+        addToast('🔍 Searching...', 'info');
         try {
           const results = await window.WebSearchService.search(args, { count: 6 });
           if (results.length === 0) {
@@ -246,7 +234,7 @@ window.useCommandHandler = function useCommandHandler({
               searchQuery: args,
               synthesis: null,
             }]);
-            addToast(`${results.length} results · synthesising…`, 'info');
+            addToast(`${results.length} results · synthesising...`, 'info');
             const synthesis = await synthesiseSearchResults(args, results);
             if (synthesis) {
               setMessages(prev => {
@@ -260,148 +248,42 @@ window.useCommandHandler = function useCommandHandler({
           addToast('Search complete', 'success');
         } catch (e) {
           addToast(e.message, 'error');
-          setMessages(prev => [...prev, {
-            role: 'assistant', content: `❌ Search failed: ${e.message}`
-          }]);
+          setMessages(prev => [...prev, { role: 'assistant', content: `❌ Search failed: ${e.message}` }]);
         }
         return true;
       }
 
       case '/plan': {
-          if (!args) { addToast('Provide a goal.', 'error'); return true; }
-          setIsRunActive(true);
-          const planResult = await window.Orchestrator.runPlanPhase({ ...orchArgs(), goal: args });
-          await refreshTasks();
-          if (!planResult?.paused) setIsRunActive(false);
-          return true;
-      }
-
-      case '/rollback': {
-        if (!currentRepo || !githubToken) { addToast('Missing repo or token', 'error'); return true; }
-        try {
-          let defaultBranch = 'main';
-          try { defaultBranch = await window.GitHubService.getDefaultBranch(currentRepo, githubToken); } catch {}
-          await window.GitHubService.resetBranch(currentRepo, currentBranch, defaultBranch, githubToken);
-          addToast(`Branch reset to ${defaultBranch}`, 'success');
-          await fetchFileTree();
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: `↩️ Branch reset to \`${defaultBranch}\`. All uncommitted changes on this branch are lost.`
-          }]);
-        } catch (e) {
-          addToast(e.message, 'error');
-        }
-        return true;
-      }
-
-      case '/self-improve': {
-        if (!args) { addToast('Describe what to improve.', 'error'); return true; }
-        if (selfImproveRunning.current) {
-          addToast('Self-improvement already in progress.', 'warning');
-          return true;
-        }
-        selfImproveRunning.current = true;
+        if (!args) { addToast('Provide a goal.', 'error'); return true; }
+        setMessages(prev => [...prev, { role: 'user', content: userText }]);
         setIsRunActive(true);
-
-        const slug      = args.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
-        const newBranch = `self-improve/${Date.now()}-${slug}`;
-        const origRepo  = currentRepo;
-        const origBranch = currentBranch;
-
-        setMessages(prev => [...prev, { role: 'user', content: `/self-improve ${args}` }]);
-
-        (async () => {
-          try {
-            let defaultBranch = 'main';
-            try { defaultBranch = await window.GitHubService.getDefaultBranch(origRepo, githubToken); } catch {}
-
-            setMessages(prev => [...prev, {
-              role: 'assistant',
-              content: `🌿 **Step 1/3:** Creating branch \`${newBranch}\` from \`${defaultBranch}\`...`
-            }]);
-            await window.GitHubService.createBranch(origRepo, defaultBranch, newBranch, githubToken);
-            setCurrentBranch(newBranch);
-            await fetchFileTree();
-
-            window.Orchestrator.resetState();
-            window.Orchestrator.setMode('autopilot');
-
-            setMessages(prev => [...prev, {
-              role: 'assistant',
-              content: `🤖 **Step 2/3:** Running autopilot for: "${args}"...`
-            }]);
-
-            const result = await window.Orchestrator.runPlanPhase({
-              ...orchArgs(),
-              goal:   args,
-              branch: newBranch,
-            });
-
-            window.Orchestrator.setMode('manual');
-
-            if (result?.error) {
-              setMessages(prev => [...prev, {
-                role: 'assistant',
-                content: `❌ **Self-improve stopped:** ${result.message}`
-              }]);
-              return;
-            }
-
-            if (!result?.done) {
-              setMessages(prev => [...prev, {
-                role: 'assistant',
-                content: `⚠️ **Self-improve did not complete cleanly.** Branch \`${newBranch}\` left for inspection.`
-              }]);
-              return;
-            }
-
-            setMessages(prev => [...prev, {
-              role: 'assistant', content: `🔀 **Step 3/3:** Opening pull request...`
-            }]);
-            const pr = await window.GitHubService.createPullRequest(
-              origRepo, newBranch, `Self-improve: ${args.slice(0, 60)}`, defaultBranch, githubToken
-            );
-            setMessages(prev => [...prev, {
-              role: 'assistant',
-              content: `✅ **Self-improvement complete!**\n\n🔀 Pull Request: ${pr.html_url}`,
-            }]);
-            addToast('🎉 PR opened!', 'success');
-
-          } catch (err) {
-            addToast(`Self-improve failed: ${err.message}`, 'error');
-            setMessages(prev => [...prev, {
-              role: 'assistant', content: `❌ **Self-improve failed:** ${err.message}`,
-            }]);
-          } finally {
-            setCurrentBranch(origBranch);
-            await fetchFileTree();
-            selfImproveRunning.current = false;
-            setIsRunActive(false);
-          }
-        })();
-
+        const planResult = await window.Orchestrator.runPlanPhase({ ...orchArgs(), goal: args });
+        await refreshTasks();
+        if (!planResult?.paused) setIsRunActive(false);
         return true;
       }
 
       case '/execute': {
-          setIsRunActive(true);
-          const execResult = await window.Orchestrator.runExecutePhase({
-              ...orchArgs(),
-              setActiveFileContent: () => {},
-              setActiveFilePath:    () => {},
-              setActiveTab:         () => {},
-          });
-          await refreshTasks();
-          if (!execResult?.paused) setIsRunActive(false);
-          return true;
+        setMessages(prev => [...prev, { role: 'user', content: userText }]);
+        setIsRunActive(true);
+        const execResult = await window.Orchestrator.runExecutePhase({
+          ...orchArgs(),
+          setActiveFileContent: () => {},
+          setActiveFilePath: () => {},
+          setActiveTab: () => {},
+        });
+        await refreshTasks();
+        if (!execResult?.paused) setIsRunActive(false);
+        return true;
       }
 
       case '/review': {
-          setIsRunActive(true);
-          const reviewResult = await window.Orchestrator.runReviewPhase(orchArgs());
-          await refreshTasks();
-          if (!reviewResult?.paused) setIsRunActive(false);
-          return true;
+        setMessages(prev => [...prev, { role: 'user', content: userText }]);
+        setIsRunActive(true);
+        const reviewResult = await window.Orchestrator.runReviewPhase(orchArgs());
+        await refreshTasks();
+        if (!reviewResult?.paused) setIsRunActive(false);
+        return true;
       }
 
       case '/autopilot': {
@@ -437,11 +319,9 @@ window.useCommandHandler = function useCommandHandler({
         const oState = window.Orchestrator.getState();
         setMessages(prev => [...prev,
           { role: 'user', content: userText },
-          {
-            role: 'assistant',
-            content: orchestratorTasks.length === 0
-              ? 'No active tasks. Use `/plan <goal>` first.'
-              : `📋 **Tasks** (${oState.milestone?.title || 'N/A'}) — check the sidebar for live status.`
+          { role: 'assistant', content: orchestratorTasks.length === 0
+            ? 'No active tasks. Use `/plan <goal>` first.'
+            : `📋 **Tasks** — check the sidebar for live status.`
           }
         ]);
         return true;
@@ -452,7 +332,7 @@ window.useCommandHandler = function useCommandHandler({
         setUserMemory(prev => [...prev, args]);
         setMessages(prev => [...prev,
           { role: 'user', content: userText },
-          { role: 'assistant', content: `🧠 I'll remember: *${args}*` }
+          { role: 'assistant', content: `🧠 I'll remember: **${args}**` }
         ]);
         return true;
       }
@@ -469,11 +349,9 @@ window.useCommandHandler = function useCommandHandler({
       case '/myprefs': {
         setMessages(prev => [...prev,
           { role: 'user', content: userText },
-          {
-            role: 'assistant',
-            content: userMemory.length === 0
-              ? 'No personal preferences saved yet.'
-              : `🧠 **Your preferences:**\n${userMemory.map((p, i) => `${i + 1}. ${p}`).join('\n')}`
+          { role: 'assistant', content: userMemory.length === 0
+            ? 'No personal preferences saved yet.'
+            : `🧠 **Your preferences:**\n${userMemory.map((p, i) => `${i + 1}. ${p}`).join('\n')}`
           }
         ]);
         return true;
@@ -484,14 +362,82 @@ window.useCommandHandler = function useCommandHandler({
           const ctx = window.ConversationMemory.get(currentRepo, currentBranch);
           setMessages(prev => [...prev,
             { role: 'user', content: userText },
-            {
-              role: 'assistant',
-              content: ctx
-                ? `**Conversation Context:**\n\`\`\`json\n${JSON.stringify(ctx, null, 2)}\n\`\`\``
-                : 'No conversation context stored yet for this repo/branch.'
+            { role: 'assistant', content: ctx
+              ? `**Conversation Context:**\n\`\`\`json\n${JSON.stringify(ctx, null, 2)}\n\`\`\``
+              : 'No conversation context stored yet for this repo/branch.'
             }
           ]);
         }
+        return true;
+      }
+
+      case '/rollback': {
+        if (!currentRepo || !githubToken) { addToast('Missing repo or token', 'error'); return true; }
+        try {
+          let defaultBranch = 'main';
+          try { defaultBranch = await window.GitHubService.getDefaultBranch(currentRepo, githubToken); } catch {}
+          await window.GitHubService.resetBranch(currentRepo, currentBranch, defaultBranch, githubToken);
+          addToast(`Branch reset to ${defaultBranch}`, 'success');
+          await fetchFileTree();
+          setMessages(prev => [...prev, { role: 'assistant', content: `↩️ Branch reset to \`${defaultBranch}\`. All uncommitted changes on this branch are lost.` }]);
+        } catch (e) {
+          addToast(e.message, 'error');
+        }
+        return true;
+      }
+
+      case '/self-improve': {
+        if (!args) { addToast('Describe what to improve.', 'error'); return true; }
+        if (selfImproveRunning.current) {
+          addToast('Self-improvement already in progress.', 'warning');
+          return true;
+        }
+        selfImproveRunning.current = true;
+        setIsRunActive(true);
+        const slug = args.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
+        const newBranch = `self-improve/${Date.now()}-${slug}`;
+        const origRepo = currentRepo;
+        const origBranch = currentBranch;
+        setMessages(prev => [...prev, { role: 'user', content: `/self-improve ${args}` }]);
+        (async () => {
+          try {
+            let defaultBranch = 'main';
+            try { defaultBranch = await window.GitHubService.getDefaultBranch(origRepo, githubToken); } catch {}
+            setMessages(prev => [...prev, { role: 'assistant', content: `🌿 **Step 1/3:** Creating branch \`${newBranch}\` from \`${defaultBranch}\`...` }]);
+            await window.GitHubService.createBranch(origRepo, defaultBranch, newBranch, githubToken);
+            setCurrentBranch(newBranch);
+            await fetchFileTree();
+            window.Orchestrator.resetState();
+            window.Orchestrator.setMode('autopilot');
+            setMessages(prev => [...prev, { role: 'assistant', content: `🤖 **Step 2/3:** Running autopilot for: "${args}"...` }]);
+            const result = await window.Orchestrator.runPlanPhase({
+              ...orchArgs(),
+              goal: args,
+              branch: newBranch,
+            });
+            window.Orchestrator.setMode('manual');
+            if (result?.error) {
+              setMessages(prev => [...prev, { role: 'assistant', content: `❌ **Self-improve stopped:** ${result.message}` }]);
+              return;
+            }
+            if (!result?.done) {
+              setMessages(prev => [...prev, { role: 'assistant', content: `⚠️ **Self-improve did not complete cleanly.** Branch \`${newBranch}\` left for inspection.` }]);
+              return;
+            }
+            setMessages(prev => [...prev, { role: 'assistant', content: `🔀 **Step 3/3:** Opening pull request...` }]);
+            const pr = await window.GitHubService.createPullRequest(origRepo, newBranch, `Self-improve: ${args.slice(0, 60)}`, defaultBranch, githubToken);
+            setMessages(prev => [...prev, { role: 'assistant', content: `✅ **Self-improvement complete!**\n\n🔀 Pull Request: ${pr.html_url}` }]);
+            addToast('🎉 PR opened!', 'success');
+          } catch (err) {
+            addToast(`Self-improve failed: ${err.message}`, 'error');
+            setMessages(prev => [...prev, { role: 'assistant', content: `❌ **Self-improve failed:** ${err.message}` }]);
+          } finally {
+            setCurrentBranch(origBranch);
+            await fetchFileTree();
+            selfImproveRunning.current = false;
+            setIsRunActive(false);
+          }
+        })();
         return true;
       }
 
@@ -502,66 +448,37 @@ window.useCommandHandler = function useCommandHandler({
         }
         setMessages(prev => [...prev, { role: 'user', content: userText }]);
         addToast('🔧 Building manifest...', 'info');
-
         try {
-          // 1. Fetch full file tree
-          const files = await window.GitHubService.fetchFileTree(
-            currentRepo, currentBranch, githubToken
-          );
-          const jsFiles = files.filter(
-            f => f.path.startsWith('js/') && (f.path.endsWith('.js') || f.path.endsWith('.jsx'))
-          );
-
-          // 2. Load content of each
+          const files = await window.GitHubService.fetchFileTree(currentRepo, currentBranch, githubToken);
+          const jsFiles = files.filter(f => f.path.startsWith('js/') && (f.path.endsWith('.js') || f.path.endsWith('.jsx')));
           const fileContents = [];
           for (const f of jsFiles) {
-            const data = await loadFile(f.path);  // returns { path, content, sha } or null
+            const data = await loadFile(f.path);
             if (data) fileContents.push({ path: data.path, content: data.content });
           }
-
-          // 3. Build manifest (pass provider & model for optional LLM descriptions)
-          const manifest = await window.ManifestParser.buildManifest(
-            fileContents,
-            provider,          // string 'deepseek' or 'openrouter'
-            selectedModel
-          );
-
+          const manifest = await window.ManifestParser.buildManifest(fileContents, provider, selectedModel);
           const manifestJson = JSON.stringify(manifest, null, 2);
-
-          // 4. Get old manifest SHA (if exists)
           let oldSha = null;
           try {
             const existing = await loadFile('manifest.json');
             if (existing) oldSha = existing.sha;
           } catch {}
-
-          // 5. Commit manifest.json
           await commitChange('manifest.json', manifestJson, oldSha, 'chore: update manifest');
-
-          // 6. Reload manifest into state
           if (loadManifest) await loadManifest();
-
           addToast('✅ Manifest built and committed', 'success');
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: `✅ **Manifest built** — ${Object.keys(manifest).length} modules indexed.`
-          }]);
+          setMessages(prev => [...prev, { role: 'assistant', content: `✅ **Manifest built** — ${Object.keys(manifest).length} modules indexed.` }]);
         } catch (e) {
           addToast(`Manifest build failed: ${e.message}`, 'error');
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: `❌ Manifest build failed: ${e.message}`
-          }]);
+          setMessages(prev => [...prev, { role: 'assistant', content: `❌ Manifest build failed: ${e.message}` }]);
         }
         return true;
       }
-        
+
       default:
         return false;
     }
   };
 
-  // ── Main send handler ─────────────────────────────────────────
   const sendMessage = async (overrideText) => {
     const userText = (overrideText || inputPrompt).trim();
     if (!userText) return;
@@ -577,7 +494,7 @@ window.useCommandHandler = function useCommandHandler({
     if (window.IntentDetector) {
       const intent = window.IntentDetector.detect(userText);
       if (intent && intent.confidence >= 0.85) {
-        const full  = intent.args ? `${intent.cmd} ${intent.args}` : intent.cmd;
+        const full = intent.args ? `${intent.cmd} ${intent.args}` : intent.cmd;
         const parts = full.split(' ');
         if (await executeSlashCommand(parts[0], parts.slice(1).join(' '), userText)) return;
       }
@@ -587,9 +504,8 @@ window.useCommandHandler = function useCommandHandler({
     const newMessages = [...messages, { role: 'user', content: userText }];
     setMessages(newMessages);
 
-    // Build context from last file card (replaces old activeFileContent)
-    const lastFile   = getLastFileContext();
-    const fileBlock  = lastFile
+    const lastFile = getLastFileContext();
+    const fileBlock = lastFile
       ? `Active file: ${lastFile.path}\nContent:\n\`\`\`\n${lastFile.content.slice(0, 3000)}\n\`\`\``
       : 'No file currently open.';
 
@@ -638,26 +554,25 @@ window.useCommandHandler = function useCommandHandler({
           try {
             const { modifiedReply, actions } = window.processAgentSkills(fullContent || '');
 
-            // If agent proposed a file update — push it as a file card (editable)
             if (actions.updateEditorContent && actions.updateEditorFile) {
               const existingFile = getLastFileContext();
               const sha = (existingFile && existingFile.path === actions.updateEditorFile)
                 ? existingFile.sha
                 : null;
               setMessages(prev => [...prev, {
-                role:    'file',
-                path:    actions.updateEditorFile,
+                role: 'file',
+                path: actions.updateEditorFile,
                 content: actions.updateEditorContent,
                 sha,
-                proposed: true, // marks it as agent-proposed, not yet committed
+                proposed: true,
               }]);
               addToast('Agent proposed a file change — review and commit in chat', 'info');
             }
 
             const finalMessages = [...newMessages, {
-              role:              'assistant',
-              content:           modifiedReply,
-              model:             usedModel,
+              role: 'assistant',
+              content: modifiedReply,
+              model: usedModel,
               reasoning_content: reasoning,
             }];
             setMessages(finalMessages);
@@ -693,7 +608,6 @@ window.useCommandHandler = function useCommandHandler({
     }
   };
 
-  // ── File upload ───────────────────────────────────────────────
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;

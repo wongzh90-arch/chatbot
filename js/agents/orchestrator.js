@@ -34,6 +34,8 @@ window.Orchestrator = (() => {
     state.runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     pauseRequested = false;
     pauseReason = null;
+    // Reset the queue as well
+    window.TaskQueue.resetQueue();
   }
 
   function isTerminal() {
@@ -52,9 +54,7 @@ window.Orchestrator = (() => {
   }
 
   function pauseMessage(context) {
-    const remaining = (state.tasks || []).filter(
-      t => t.labels && t.labels.some(l => l.name === 'task:todo')
-    ).length;
+    const remaining = state.tasks.filter(t => t.status === window.TaskQueue.STATUS.TODO).length;
     return `⏸ **Paused** ${context}. ${remaining} task(s) remaining.\nType \`/execute\` to continue or \`/manual\` to stay in step mode.`;
   }
 
@@ -63,7 +63,7 @@ window.Orchestrator = (() => {
     provider, model, thinkingMode, reasoningEffort,
     fileTree, addToast, setMessages,
     projectMemory, userMemory, systemPromptOverride,
-    manifest,                              // Phase 1B
+    manifest,
   }) {
     resetState();
     state.phase = 'planning';
@@ -80,7 +80,7 @@ window.Orchestrator = (() => {
         provider, model, thinkingMode, reasoningEffort,
         fileTree, addToast,
         projectMemory, userMemory, systemPromptOverride,
-        manifest,                          // Phase 1B
+        manifest,
       });
 
       if (result.error) {
@@ -92,11 +92,12 @@ window.Orchestrator = (() => {
         return { error: true, message: result.message || result.error };
       }
 
-      state.milestone = result.milestone;
+      // Planner now returns tasks directly from queue
       state.tasks = result.tasks;
+      state.milestone = { title: result.milestoneTitle, description: result.analysis };
 
-      const planSummary = `📋 **Milestone:** ${result.milestone.title}\n\n${result.analysis || ''}\n\n**Tasks:**\n${
-        result.tasks.map((t, i) => `${i + 1}. ${t.title} [#${t.issueNumber}](${t.html_url})`).join('\n')
+      const planSummary = `📋 **Milestone:** ${result.milestoneTitle}\n\n${result.analysis || ''}\n\n**Tasks:**\n${
+        result.tasks.map((t, i) => `${i + 1}. ${t.title}`).join('\n')
       }`;
 
       setMessages(prev => [...prev, { role: 'assistant', content: planSummary }]);
@@ -136,11 +137,11 @@ window.Orchestrator = (() => {
     projectMemory, userMemory, systemPromptOverride,
     addToast, setMessages,
     setActiveFileContent, setActiveFilePath, setActiveTab,
-    manifest,                              // Phase 1B
+    manifest,
   }) {
-    if (!state.milestone) {
-      addToast('No active milestone. Run /plan first.', 'error');
-      return { error: true, message: 'No milestone in state' };
+    if (state.tasks.length === 0) {
+      addToast('No active tasks. Run /plan first.', 'error');
+      return { error: true, message: 'No tasks in state' };
     }
 
     if (state.phase === 'done') return { done: true };
@@ -157,12 +158,13 @@ window.Orchestrator = (() => {
     state.phase = 'executing';
 
     try {
-      const allTasks = await window.TaskManager.getTasksByMilestone(repo, state.milestone.number, githubToken);
+      // Refresh tasks from queue
+      const allTasks = window.TaskQueue.getAllTasks();
       state.tasks = allTasks;
 
       const eligibleTasks = allTasks.filter(t => {
-        const retries = state.taskRetries[t.number] || 0;
-        return retries < TASK_RETRY_LIMIT;
+        const retries = t.retries || 0;
+        return retries < TASK_RETRY_LIMIT && window.TaskQueue.isUnblocked(t);
       });
 
       const result = await window.ExecutorAgent.executeNextTask({
@@ -178,9 +180,7 @@ window.Orchestrator = (() => {
       });
 
       if (!result) {
-        const stillTodo = eligibleTasks.filter(t =>
-          t.labels.some(l => l.name === 'task:todo' || l.name === 'task:in_progress')
-        );
+        const stillTodo = eligibleTasks.filter(t => t.status === window.TaskQueue.STATUS.TODO);
         if (stillTodo.length > 0) {
           state.phase = 'error';
           const msg = `${stillTodo.length} task(s) could not be executed (blocked or exceeded retry limit).`;
@@ -200,16 +200,16 @@ window.Orchestrator = (() => {
       }
 
       if (result.failed) {
-        state.taskRetries[result.taskNumber] = (state.taskRetries[result.taskNumber] || 0) + 1;
-        const retries = state.taskRetries[result.taskNumber];
+        state.taskRetries[result.taskId] = (state.taskRetries[result.taskId] || 0) + 1;
+        const retries = state.taskRetries[result.taskId];
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `⚠️ Task **${result.title}** [#${result.taskNumber}] failed (attempt ${retries}/${TASK_RETRY_LIMIT}): ${result.reason || 'no code produced'}`,
+          content: `⚠️ Task **${result.title}** (attempt ${retries}/${TASK_RETRY_LIMIT}) failed: ${result.reason || 'no code produced'}`,
         }]);
       } else {
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `🔨 Executed **${result.title}** [#${result.issueNumber || result.number}]`,
+          content: `🔨 Executed **${result.title}**`,
         }]);
         state.lastExecutedTask = result;
       }
@@ -248,11 +248,11 @@ window.Orchestrator = (() => {
     provider, model, thinkingMode, reasoningEffort,
     fileTree, addToast, setMessages,
     projectMemory, userMemory, systemPromptOverride,
-    manifest,                              // Phase 1B
+    manifest,
   }) {
-    if (!state.milestone) {
-      addToast('No active milestone to review.', 'warning');
-      return { error: true, message: 'No milestone in state' };
+    if (state.tasks.length === 0) {
+      addToast('No active tasks to review.', 'warning');
+      return { error: true, message: 'No tasks in state' };
     }
 
     if (state.phase === 'done') return { done: true };
@@ -275,8 +275,8 @@ window.Orchestrator = (() => {
     state.phase = 'reviewing';
 
     try {
-      const allTasks = await window.TaskManager.getTasksByMilestone(repo, state.milestone.number, githubToken);
-      const doneCount = allTasks.filter(t => t.labels.some(l => l.name === 'task:done')).length;
+      const allTasks = window.TaskQueue.getAllTasks();
+      const doneCount = allTasks.filter(t => t.status === window.TaskQueue.STATUS.DONE).length;
 
       if (doneCount === 0) {
         state.phase = 'error';
@@ -307,17 +307,8 @@ window.Orchestrator = (() => {
           content: '✅ **All tasks reviewed and passed!** Ready to merge.',
         }]);
 
-        if (state.milestone && !state.milestoneClosed) {
-          state.milestoneClosed = true;
-          try {
-            await window.TaskManager.closeMilestone(repo, state.milestone.number, githubToken);
-            addToast('🎉 Milestone complete!', 'success');
-          } catch (e) {
-            console.warn('Milestone close failed (likely already closed):', e.message);
-          }
-        }
-
-        // 🔥 Phase 0C: record run completed
+        // (Milestone closing is now conceptual – no GitHub issues to close)
+        // We keep the flag to avoid double-done but no API call needed.
         if (window.ConversationMemory) {
           window.ConversationMemory.recordRunCompleted(repo, branch, true);
         }

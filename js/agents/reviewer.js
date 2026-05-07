@@ -9,13 +9,11 @@ window.ReviewerAgent = (() => {
     addToast,
     projectMemory,
     userMemory,
-    manifest,                    // Phase 1B
+    manifest,
     systemPromptOverride
   }) {
 
-    const doneTasks = tasks.filter(t =>
-      t.labels.some(l => l.name === window.TaskManager.LABELS.DONE.name)
-    );
+    const doneTasks = tasks.filter(t => t.status === window.TaskQueue.STATUS.DONE);
 
     if (doneTasks.length === 0) {
       addToast('No completed tasks to review.', 'info');
@@ -29,16 +27,12 @@ window.ReviewerAgent = (() => {
 
     for (const task of doneTasks) {
       try {
-        // Move to REVIEW state
-        await window.TaskManager.updateTaskStatus(repo, task.number, 'REVIEW', githubToken);
+        // Mark as REVIEW
+        window.TaskQueue.updateTaskStatus(task.id, window.TaskQueue.STATUS.REVIEW);
 
-        const body = task.body || '';
-        const fileMatch = body.match(/\*\*Files:\*\*\s*(.*)/);
-        const targetFiles = fileMatch
-          ? fileMatch[1].split(',').map(f => f.trim()).filter(Boolean)
-          : [];
-
+        const targetFiles = task.files || [];
         const fileContents = {};
+
         for (const path of targetFiles.slice(0, 2)) {
           try {
             const { content } = await window.GitHubService.loadFileContent(repo, branch, path, githubToken);
@@ -48,7 +42,7 @@ window.ReviewerAgent = (() => {
           }
         }
 
-        // Phase 1B: also load consumer files (files that import any target file)
+        // Phase 1B: load consumers
         let consumerContents = {};
         if (manifest) {
           const consumerFiles = new Set();
@@ -59,7 +53,7 @@ window.ReviewerAgent = (() => {
             }
           }
           for (const cp of consumerFiles) {
-            if (targetFiles.includes(cp)) continue; // already loaded
+            if (targetFiles.includes(cp)) continue;
             try {
               const { content } = await window.GitHubService.loadFileContent(repo, branch, cp, githubToken);
               consumerContents[cp] = content;
@@ -67,7 +61,6 @@ window.ReviewerAgent = (() => {
           }
         }
 
-        // Build context using ContextBuilder
         const targetFileContents = targetFiles.map(p => ({ path: p, content: fileContents[p] || '[unavailable]' }));
         const relatedFileContents = Object.entries(consumerContents).map(([p, c]) => ({ path: p, content: c }));
 
@@ -81,7 +74,7 @@ window.ReviewerAgent = (() => {
         let sysPrompt = `You are a strict but pragmatic code reviewer. Review this completed task.
 
 Task: ${task.title}
-Task details: ${body}
+Task details: ${task.description}
 Repository: ${repo}
 
 ${contextBlock}
@@ -103,8 +96,8 @@ Respond with EXACTLY ONE of these:
         }
 
         if (userMemory && userMemory.length) {
-          const context = task.title + ' ' + (task.body || '');
-          const relevantPrefs = window.ContextMatcher.selectRelevant(userMemory, context, 3);
+          const ctx = task.title + ' ' + task.description;
+          const relevantPrefs = window.ContextMatcher.selectRelevant(userMemory, ctx, 3);
           if (relevantPrefs.length) {
             sysPrompt += '\n\nRELEVANT USER PREFERENCES:\n' + relevantPrefs.map((p, i) => `${i+1}. ${p}`).join('\n');
           }
@@ -114,7 +107,7 @@ Respond with EXACTLY ONE of these:
           sysPrompt += '\n\nPROJECT MEMORY:\n' + projectMemory.map((m, i) => `${i+1}. ${m}`).join('\n');
         }
 
-        const userContent = `Review task #${task.number}: ${task.title}`;
+        const userContent = `Review task ${task.title}`;
         const reply = await window.LLMProvider.chatCompletion({
           provider,
           model,
@@ -130,31 +123,20 @@ Respond with EXACTLY ONE of these:
         const ok = /^\s*PASS\b/i.test((reply.content || '').trim());
 
         if (ok) {
-          await window.TaskManager.addComment(
-            repo, task.number,
-            `✅ **Review passed.**`,
-            githubToken
-          ).catch(() => {});
-          await window.TaskManager.updateTaskStatus(repo, task.number, 'DONE', githubToken);
+          window.TaskQueue.addComment(`✅ **Review passed.**`);
+          window.TaskQueue.updateTaskStatus(task.id, window.TaskQueue.STATUS.DONE);
         } else {
           totalIssuesFound++;
-          await window.TaskManager.addComment(
-            repo, task.number,
-            `⚠️ **Review found issues:**\n\n${reply.content}`,
-            githubToken
-          ).catch(() => {});
-          // Send back to TODO for re-execution
-          await window.TaskManager.updateTaskStatus(repo, task.number, 'TODO', githubToken);
+          window.TaskQueue.addComment(`⚠️ **Review found issues:**\n\n${reply.content}`);
+          window.TaskQueue.updateTaskStatus(task.id, window.TaskQueue.STATUS.TODO); // back to TODO for re-execution
           addToast(`🐛 Issues found in "${task.title}"`, 'warning');
         }
 
       } catch (err) {
-        console.error(`Review failed for task #${task.number}:`, err);
-        addToast(`Error reviewing task #${task.number}: ${err.message}`, 'error');
-        // Restore to DONE so it isn't lost
-        try {
-          await window.TaskManager.updateTaskStatus(repo, task.number, 'DONE', githubToken);
-        } catch {}
+        console.error(`Review failed for task ${task.id}:`, err);
+        addToast(`Error reviewing task: ${err.message}`, 'error');
+        // restore to DONE to avoid hang
+        window.TaskQueue.updateTaskStatus(task.id, window.TaskQueue.STATUS.DONE);
       }
     }
 

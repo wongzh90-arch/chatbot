@@ -20,7 +20,7 @@ window.ExecutorAgent = (() => {
     reasoningEffort,
     projectMemory,
     userMemory,
-    manifest,                    // Phase 1B
+    manifest,
     systemPromptOverride,
     addToast,
     setActiveFileContent,
@@ -28,55 +28,30 @@ window.ExecutorAgent = (() => {
     setActiveTab,
   }) {
 
-    // Reset stuck in‑progress tasks
-    const stuckTasks = tasks.filter(t =>
-      t.labels.some(l => l.name === 'task:in_progress')
-    );
+    // Reset stuck in‑progress tasks (Phase 1C: use TaskQueue)
+    const stuckTasks = tasks.filter(t => t.status === window.TaskQueue.STATUS.IN_PROGRESS);
     for (const stuck of stuckTasks) {
-      try {
-        await window.TaskManager.updateTaskStatus(repo, stuck.number, 'TODO', githubToken);
-        stuck.labels = stuck.labels.filter(l => !l.name.startsWith('task:'));
-        stuck.labels.push({ name: 'task:todo' });
-      } catch (e) {
-        console.warn(`Could not reset task #${stuck.number}:`, e.message);
-      }
+      window.TaskQueue.updateTaskStatus(stuck.id, window.TaskQueue.STATUS.TODO);
     }
 
-    const todoTask = tasks.find(t => {
-      const isTodo = t.labels.some(l => l.name === 'task:todo');
-      const unblocked = window.TaskManager.isUnblocked(t, tasks);
-      return isTodo && unblocked;
-    });
+    // Find next TODO task that is unblocked
+    const todoTask = tasks.find(t =>
+      t.status === window.TaskQueue.STATUS.TODO && window.TaskQueue.isUnblocked(t)
+    );
 
     if (!todoTask) return null;
 
-    try {
-      await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'IN_PROGRESS', githubToken);
-    } catch (e) {
-      addToast(`Could not mark task #${todoTask.number} as in-progress: ${e.message}`, 'error');
-      return {
-        failed: true,
-        taskNumber: todoTask.number,
-        title: todoTask.title,
-        reason: `Could not update task status: ${e.message}`,
-      };
-    }
-
+    window.TaskQueue.updateTaskStatus(todoTask.id, window.TaskQueue.STATUS.IN_PROGRESS);
     addToast(`🔨 Starting: ${todoTask.title}`);
 
-    const body = todoTask.body || '';
-    const fileMatch = body.match(/\*\*Files:\*\*\s*(.*)/);
-    const targetFiles = fileMatch
-      ? fileMatch[1].split(',').map(f => f.trim()).filter(Boolean)
-      : [];
-
-    const description = body.replace(/\*\*Files:\*\*.*/, '').trim();
+    const targetFiles = todoTask.files || [];
+    const description = todoTask.description || '';
 
     if (targetFiles.length === 0) {
-      await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'TODO', githubToken);
+      window.TaskQueue.updateTaskStatus(todoTask.id, window.TaskQueue.STATUS.FAILED, 'No target files specified');
       return {
         failed: true,
-        taskNumber: todoTask.number,
+        taskId: todoTask.id,
         title: todoTask.title,
         reason: 'Task has no target files specified',
       };
@@ -104,7 +79,6 @@ window.ExecutorAgent = (() => {
       }
     }
 
-    // Build context
     const targetContents = targetFiles.map(p => ({ path: p, content: (fileContents[p]?.content || '') }));
     const relatedPaths = filesToLoad.filter(p => !targetFiles.includes(p));
     const relatedContents = relatedPaths.map(p => ({ path: p, content: fileContents[p]?.content || '' }));
@@ -167,10 +141,10 @@ Rules:
         reasoningEffort,
       });
     } catch (e) {
-      await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'TODO', githubToken);
+      window.TaskQueue.updateTaskStatus(todoTask.id, window.TaskQueue.STATUS.FAILED, `LLM call failed: ${e.message}`);
       return {
         failed: true,
-        taskNumber: todoTask.number,
+        taskId: todoTask.id,
         title: todoTask.title,
         reason: `LLM call failed: ${e.message}`,
       };
@@ -179,24 +153,23 @@ Rules:
     const extracted = extractUpdateEditor(reply.content || '');
 
     if (!extracted) {
-      await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'TODO', githubToken);
-      await window.TaskManager.addComment(repo, todoTask.number,
-        `🤖 Execution attempt produced no valid \`update_editor\` skill block. Raw output (first 500 chars):\n\n\`\`\`\n${(reply.content || '').slice(0, 500)}\n\`\`\``,
-        githubToken
-      ).catch(() => {});
+      window.TaskQueue.updateTaskStatus(todoTask.id, window.TaskQueue.STATUS.FAILED, 'LLM did not produce a valid skill block');
+      window.TaskQueue.addComment(
+        `🤖 Execution attempt produced no valid \`update_editor\` skill block. Raw output (first 500 chars):\n\n\`\`\`\n${(reply.content || '').slice(0, 500)}\n\`\`\``
+      );
       return {
         failed: true,
-        taskNumber: todoTask.number,
+        taskId: todoTask.id,
         title: todoTask.title,
         reason: 'LLM did not produce a valid skill block',
       };
     }
 
     if (/^FAILED:/i.test(extracted.content)) {
-      await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'TODO', githubToken);
+      window.TaskQueue.updateTaskStatus(todoTask.id, window.TaskQueue.STATUS.FAILED, extracted.content.slice(0, 200));
       return {
         failed: true,
-        taskNumber: todoTask.number,
+        taskId: todoTask.id,
         title: todoTask.title,
         reason: extracted.content.slice(0, 200),
       };
@@ -204,10 +177,10 @@ Rules:
 
     let filePath = extracted.file || targetFiles[0];
     if (!filePath) {
-      await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'TODO', githubToken);
+      window.TaskQueue.updateTaskStatus(todoTask.id, window.TaskQueue.STATUS.FAILED, 'No file path determinable');
       return {
         failed: true,
-        taskNumber: todoTask.number,
+        taskId: todoTask.id,
         title: todoTask.title,
         reason: 'No file path determinable',
       };
@@ -220,18 +193,18 @@ Rules:
         repo, branch, filePath,
         extracted.content,
         oldSha,
-        `Implement: ${todoTask.title} (#${todoTask.number})`,
+        `Implement: ${todoTask.title}`,
         githubToken
       );
     } catch (err) {
       addToast(`Commit failed for ${filePath}: ${err.message}`, 'error');
-      await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'TODO', githubToken);
+      window.TaskQueue.updateTaskStatus(todoTask.id, window.TaskQueue.STATUS.FAILED, `Commit failed: ${err.message}`);
       if (window.ConversationMemory) {
         window.ConversationMemory.recordTaskCompleted(repo, branch, todoTask.title, false);
       }
       return {
         failed: true,
-        taskNumber: todoTask.number,
+        taskId: todoTask.id,
         title: todoTask.title,
         reason: `Commit failed: ${err.message}`,
       };
@@ -243,11 +216,8 @@ Rules:
       if (setActiveTab) setActiveTab('editor');
     }
 
-    try {
-      await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'DONE', githubToken);
-    } catch (e) {
-      addToast(`Could not mark task #${todoTask.number} as done: ${e.message}`, 'warning');
-    }
+    window.TaskQueue.updateTaskStatus(todoTask.id, window.TaskQueue.STATUS.DONE);
+    addToast(`✅ Completed: ${todoTask.title}`);
 
     if (window.ConversationMemory) {
       window.ConversationMemory.recordTaskCompleted(repo, branch, todoTask.title, true);
@@ -255,8 +225,8 @@ Rules:
 
     return {
       failed: false,
-      ...todoTask,
-      issueNumber: todoTask.number,
+      taskId: todoTask.id,
+      title: todoTask.title,
       filePath,
     };
   }
