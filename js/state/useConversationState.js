@@ -112,5 +112,6 @@ window.useConversationState = function useConversationState() {
     // Refs
     chatScrollRef,
     inputRef,
+    scrollToBottom,
   };
 };
