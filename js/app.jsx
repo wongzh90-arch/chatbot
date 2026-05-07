@@ -1,12 +1,24 @@
-// js/app.jsx — composition root, no business logic.
+// js/app.jsx --- composition root, no business logic.
+// Added: ThemeProvider wrapper, theme-aware root classes.
 
 const { useState, useEffect } = React;
 
 function App() {
+  // ── Theme ───────────────────────────────────────────────────
+  // useTheme must be called inside a component that is wrapped by ThemeProvider.
+  // We'll wrap the entire App in ThemeProvider, so we can use it here.
+  // Actually, useTheme must be inside the provider. So we'll create a wrapper.
+  return React.createElement(window.ThemeProvider, null,
+    React.createElement(AppContent)
+  );
+}
+
+function AppContent() {
+  const { theme, toggleTheme } = window.useTheme();
 
   // ── Core state hooks ──────────────────────────────────────────
-  const provider     = window.useProviderState();
-  const workspace    = window.useWorkspaceState();
+  const provider = window.useProviderState();
+  const workspace = window.useWorkspaceState();
   const conversation = window.useConversationState();
 
   // ── Toasts ────────────────────────────────────────────────────
@@ -24,7 +36,6 @@ function App() {
     const saved = localStorage.getItem(`MEM_${workspace.currentRepo}`);
     setProjectMemory(saved ? JSON.parse(saved) : []);
   }, [workspace.currentRepo]);
-
   const addMemoryRule = (rule) => {
     const updated = [...projectMemory, rule];
     setProjectMemory(updated);
@@ -46,12 +57,12 @@ function App() {
 
   // ── GitHub actions ────────────────────────────────────────────
   const github = window.useGitHubActions({
-    currentRepo:      workspace.currentRepo,
-    currentBranch:    workspace.currentBranch,
+    currentRepo: workspace.currentRepo,
+    currentBranch: workspace.currentBranch,
     setCurrentBranch: workspace.setCurrentBranch,
-    githubToken:      workspace.githubToken,
-    deployHook:       workspace.deployHook,
-    workspace:        workspace.workspace,
+    githubToken: workspace.githubToken,
+    deployHook: workspace.deployHook,
+    workspace: workspace.workspace,
     addToast,
   });
 
@@ -59,40 +70,40 @@ function App() {
   const [orchestratorTasks, setOrchestratorTasks] = useState([]);
 
   // ── Input / hints ─────────────────────────────────────────────
-  const [inputPrompt,  setInputPrompt]  = useState('');
+  const [inputPrompt, setInputPrompt] = useState('');
   const [showCmdHints, setShowCmdHints] = useState(false);
   useEffect(() => { setShowCmdHints(inputPrompt.startsWith('/')); }, [inputPrompt]);
 
   // ── Command handler ───────────────────────────────────────────
   const commands = window.useCommandHandler({
-    provider:            provider.provider,
-    selectedModel:       provider.selectedModel,
-    thinkingMode:        provider.thinkingMode,
-    reasoningEffort:     provider.reasoningEffort,
-    currentRepo:         workspace.currentRepo,
-    currentBranch:       workspace.currentBranch,
-    setCurrentBranch:    workspace.setCurrentBranch,
-    githubToken:         workspace.githubToken,
+    provider: provider.provider,
+    selectedModel: provider.selectedModel,
+    thinkingMode: provider.thinkingMode,
+    reasoningEffort: provider.reasoningEffort,
+    currentRepo: workspace.currentRepo,
+    currentBranch: workspace.currentBranch,
+    setCurrentBranch: workspace.setCurrentBranch,
+    githubToken: workspace.githubToken,
     systemPromptOverride: workspace.systemPromptOverride,
-    messages:            conversation.messages,
-    setMessages:         conversation.setMessages,
-    uploadedContext:     conversation.uploadedContext,
-    setUploadedContext:  conversation.setUploadedContext,
+    messages: conversation.messages,
+    setMessages: conversation.setMessages,
+    uploadedContext: conversation.uploadedContext,
+    setUploadedContext: conversation.setUploadedContext,
     setStreamingMessage: conversation.setStreamingMessage,
     setStreamingReasoning: conversation.setStreamingReasoning,
-    isRunActive:         conversation.isRunActive,
-    setIsRunActive:      conversation.setIsRunActive,
-    fetchFileTree:       github.fetchFileTree,
-    loadFile:            github.loadFile,
-    commitChange:        github.commitChange,
-    handleCreateBranch:  github.handleCreateBranch,
-    handleSwitchBranch:  github.handleSwitchBranch,
-    handleCreatePR:      github.handleCreatePR,
-    projectMemory,       addMemoryRule,   clearMemory,
-    userMemory,          setUserMemory,
-    orchestratorTasks,   setOrchestratorTasks,
+    isRunActive: conversation.isRunActive,
+    setIsRunActive: conversation.setIsRunActive,
+    fetchFileTree: github.fetchFileTree,
+    loadFile: github.loadFile,
+    commitChange: github.commitChange,
+    handleCreateBranch: github.handleCreateBranch,
+    handleSwitchBranch: github.handleSwitchBranch,
+    handleCreatePR: github.handleCreatePR,
+    projectMemory, addMemoryRule, clearMemory,
+    userMemory, setUserMemory,
+    orchestratorTasks, setOrchestratorTasks,
     addToast,
-    inputPrompt,         setInputPrompt,
+    inputPrompt, setInputPrompt,
     manifest: workspace.manifest,
   });
 
@@ -107,11 +118,16 @@ function App() {
     return await github.commitChange(path, content, sha, message);
   };
 
+  // ── Theme-aware class names ──────────────────────────────────
+  const rootBg = theme === 'dark' ? 'bg-zinc-950 text-zinc-200' : 'bg-white text-zinc-900';
+  const sidebarBg = theme === 'dark' ? 'bg-zinc-950 border-zinc-800' : 'bg-gray-50 border-gray-200';
+  const chatBg = theme === 'dark' ? 'bg-zinc-950 border-zinc-900' : 'bg-white border-gray-200';
+  // You can further refine these or pass `theme` down to components.
+
   // ── Render ────────────────────────────────────────────────────
   return React.createElement('div', {
-    className: 'flex flex-col h-screen bg-zinc-950 text-zinc-200 overflow-hidden'
+    className: `flex flex-col h-screen ${rootBg} overflow-hidden`
   },
-
     // Toasts
     React.createElement('div', {
       className: 'fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none'
@@ -119,52 +135,51 @@ function App() {
       toasts.map(t => React.createElement('div', {
         key: t.id,
         className: `px-4 py-3 rounded-xl shadow-xl border text-sm max-w-xs pointer-events-auto ${
-          t.type === 'error'   ? 'bg-red-950/95 border-red-800 text-red-200' :
+          t.type === 'error' ? 'bg-red-950/95 border-red-800 text-red-200' :
           t.type === 'success' ? 'bg-green-950/95 border-green-800 text-green-200' :
           t.type === 'warning' ? 'bg-yellow-950/95 border-yellow-800 text-yellow-200' :
           'bg-zinc-800/95 border-zinc-700 text-zinc-200'
         }`
       }, t.message))
     ),
-
-    // Navbar
+    // Navbar (pass theme and toggleTheme)
     React.createElement(window.Navbar, {
-      workspace:               workspace.workspace,
-      setWorkspace:            workspace.setWorkspace,
-      currentRepo:             workspace.currentRepo,
-      setCurrentRepo:          workspace.setCurrentRepo,
-      currentBranch:           workspace.currentBranch,
-      setCurrentBranch:        workspace.setCurrentBranch,
-      githubToken:             workspace.githubToken,
-      setGithubToken:          workspace.setGithubToken,
-      selectedModel:           provider.selectedModel,
-      setSelectedModel:        provider.setSelectedModel,
-      deployHook:              workspace.deployHook,
-      setDeployHook:           workspace.setDeployHook,
-      onFetchFileTree:         github.fetchFileTree,
-      isLoading:               github.isLoading,
-      rememberKeys:            workspace.rememberKeys,
-      setRememberKeys:         workspace.setRememberKeys,
-      models:                  provider.models,
-      modelsLoading:           provider.modelsLoading,
-      systemPromptOverride:    workspace.systemPromptOverride,
+      theme, toggleTheme,
+      workspace: workspace.workspace,
+      setWorkspace: workspace.setWorkspace,
+      currentRepo: workspace.currentRepo,
+      setCurrentRepo: workspace.setCurrentRepo,
+      currentBranch: workspace.currentBranch,
+      setCurrentBranch: workspace.setCurrentBranch,
+      githubToken: workspace.githubToken,
+      setGithubToken: workspace.setGithubToken,
+      selectedModel: provider.selectedModel,
+      setSelectedModel: provider.setSelectedModel,
+      deployHook: workspace.deployHook,
+      setDeployHook: workspace.setDeployHook,
+      onFetchFileTree: github.fetchFileTree,
+      isLoading: github.isLoading,
+      rememberKeys: workspace.rememberKeys,
+      setRememberKeys: workspace.setRememberKeys,
+      models: provider.models,
+      modelsLoading: provider.modelsLoading,
+      systemPromptOverride: workspace.systemPromptOverride,
       setSystemPromptOverride: workspace.setSystemPromptOverride,
-      provider:                provider.provider,
-      setProvider:             provider.setProvider,
-      thinkingMode:            provider.thinkingMode,
-      setThinkingMode:         provider.setThinkingMode,
-      reasoningEffort:         provider.reasoningEffort,
-      setReasoningEffort:      provider.setReasoningEffort,
+      provider: provider.provider,
+      setProvider: provider.setProvider,
+      thinkingMode: provider.thinkingMode,
+      setThinkingMode: provider.setThinkingMode,
+      reasoningEffort: provider.reasoningEffort,
+      setReasoningEffort: provider.setReasoningEffort,
     }),
-
     // Body
     React.createElement(window.ErrorBoundary, null,
       React.createElement('div', { className: 'flex flex-1 overflow-hidden' },
-
         // Conversation list sidebar
         React.createElement('div', {
-          className: 'w-36 bg-zinc-950 border-r border-zinc-800 flex flex-col shrink-0'
+          className: `w-36 ${sidebarBg} border-r flex flex-col shrink-0`
         },
+          // ... (rest of the conversation list code unchanged) ...
           React.createElement('div', {
             className: 'px-2 py-2 border-b border-zinc-800 flex items-center justify-between'
           },
@@ -196,38 +211,38 @@ function App() {
             )
           )
         ),
-
         // Left pane
         React.createElement(window.LeftPane, {
-          fileTree:          github.fileTree,
-          onFileClick:       handleFileClick,
-          recentlyModified:  github.recentlyModified,
-          memory:            projectMemory,
+          theme,
+          fileTree: github.fileTree,
+          onFileClick: handleFileClick,
+          recentlyModified: github.recentlyModified,
+          memory: projectMemory,
           orchestratorTasks,
-          isRunActive:       conversation.isRunActive,
-          isLoading:         github.isLoading,
-          onFetchFileTree:   github.fetchFileTree,
+          isRunActive: conversation.isRunActive,
+          isLoading: github.isLoading,
+          onFetchFileTree: github.fetchFileTree,
         }),
-
         // Chat pane
         React.createElement(window.ChatPane, {
-          messages:           conversation.messages,
+          theme,
+          messages: conversation.messages,
           inputPrompt,
           setInputPrompt,
-          uploadedContext:    conversation.uploadedContext,
+          uploadedContext: conversation.uploadedContext,
           setUploadedContext: conversation.setUploadedContext,
-          isLoading:          github.isLoading,
-          onSend:             commands.sendMessage,
-          onFileUpload:       commands.handleFileUpload,
+          isLoading: github.isLoading,
+          onSend: commands.sendMessage,
+          onFileUpload: commands.handleFileUpload,
           showCmdHints,
           onCmdHintClick: cmd => {
             setInputPrompt(cmd + ' ');
             if (conversation.inputRef.current) conversation.inputRef.current.focus();
           },
-          chatScrollRef:     conversation.chatScrollRef,
-          inputRef:          conversation.inputRef,
-          streamingMessage:  conversation.streamingMessage,
-          isRunActive:       conversation.isRunActive,
+          chatScrollRef: conversation.chatScrollRef,
+          inputRef: conversation.inputRef,
+          streamingMessage: conversation.streamingMessage,
+          isRunActive: conversation.isRunActive,
           onPause: () => {
             if (window.Orchestrator) window.Orchestrator.requestPause('user');
             addToast('⏸ Pause requested — stopping after current task', 'info');
