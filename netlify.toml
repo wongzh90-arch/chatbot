@@ -1,3 +1,18 @@
+// FIND:
 [build]
   command = "node netlify/inject-preview-bypass.js"
   functions = "netlify/functions"
+
+// REPLACE WITH:
+[build]
+  command = "node netlify/inject-preview-bypass.js"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+[functions."deepseek-proxy"]
+  timeout = 30
+
+[functions."openrouter-proxy"]
+  timeout = 30
