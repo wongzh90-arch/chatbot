@@ -1,9 +1,3 @@
-// FIND:
-[build]
-  command = "node netlify/inject-preview-bypass.js"
-  functions = "netlify/functions"
-
-// REPLACE WITH:
 [build]
   command = "node netlify/inject-preview-bypass.js"
   functions = "netlify/functions"
