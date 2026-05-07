@@ -10,17 +10,24 @@ exports.handler = async (event) => {
 
   try {
     const requestBody = JSON.parse(event.body);
-    // stream is not supported, always send non-streaming
     requestBody.stream = false;
 
-    const response = await fetch('https://api.deepseek.com/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
+    let response;
+    try {
+      response = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
 
     const data = await response.json();
 
@@ -52,10 +59,11 @@ exports.handler = async (event) => {
       body: JSON.stringify(result),
     };
   } catch (error) {
-    console.error('DeepSeek proxy error:', error);
+    const isTimeout = error.name === 'AbortError';
+    console.error(isTimeout ? 'DeepSeek timeout' : 'DeepSeek proxy error:', error);
     return {
-      statusCode: 500,
-      body: JSON.stringify({ error: error.message }),
+      statusCode: isTimeout ? 504 : 500,
+      body: JSON.stringify({ error: isTimeout ? 'DeepSeek API timed out after 25s' : error.message }),
     };
   }
 };
