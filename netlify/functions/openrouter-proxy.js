@@ -1,3 +1,4 @@
+// netlify/functions/openrouter-proxy.js
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
@@ -5,93 +6,70 @@ exports.handler = async (event) => {
 
   const API_KEY = process.env.OPENROUTER_API_KEY;
   if (!API_KEY) {
-    return { statusCode: 500, body: 'Server misconfigured: missing API key' };
+    return { statusCode: 500, body: 'Server misconfigured: missing OPENROUTER_API_KEY' };
   }
 
   try {
     const requestBody = JSON.parse(event.body);
-    const wantsStream = requestBody.stream === true;
+    requestBody.stream = true; // Force streaming
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 25000);
+    const timeout = setTimeout(() => controller.abort(), 29000);
 
-    if (wantsStream) {
-      requestBody.stream = true;
-      let response;
-      try {
-        response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${API_KEY}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': event.headers.origin || 'https://your-site.netlify.app',
-            'X-Title': 'Claude Code Web',
-          },
-          body: JSON.stringify(requestBody),
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timeout);
-      }
+    const upstreamRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': event.headers.origin || 'https://your-site.netlify.app',
+        'X-Title': 'Claude Code Web',
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
+    });
 
-      const text = await response.text();
-      const lines = text.split('\n');
-      let fullContent = '';
-      let modelName = requestBody.model || '';
+    clearTimeout(timeout);
 
-      for (const line of lines) {
-        if (line.startsWith('data: ') && line !== 'data: [DONE]') {
-          try {
-            const chunk = JSON.parse(line.slice(6));
-            const delta = chunk.choices?.[0]?.delta?.content || '';
-            fullContent += delta;
-            if (chunk.model) modelName = chunk.model;
-          } catch {}
-        }
-      }
-
+    if (!upstreamRes.ok) {
+      const errorText = await upstreamRes.text();
       return {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          choices: [{ message: { content: fullContent } }],
-          model: modelName,
-        }),
+        statusCode: upstreamRes.status,
+        body: JSON.stringify({ error: errorText }),
       };
     }
 
-    // Non-streaming path
-    requestBody.stream = false;
-    let response;
-    try {
-      response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${API_KEY}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': event.headers.origin || 'https://your-site.netlify.app',
-          'X-Title': 'Claude Code Web',
-        },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
 
-    const data = await response.json();
-    return {
-      statusCode: response.status,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    };
+    (async () => {
+      try {
+        const reader = upstreamRes.body.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          await writer.write(value);
+        }
+      } catch (err) {
+        console.error('OpenRouter streaming error:', err);
+      } finally {
+        await writer.close();
+      }
+    })();
 
+    return new Response(readable, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
   } catch (error) {
     const isTimeout = error.name === 'AbortError';
     console.error(isTimeout ? 'OpenRouter timeout' : 'OpenRouter proxy error:', error);
     return {
       statusCode: isTimeout ? 504 : 500,
-      body: JSON.stringify({ error: isTimeout ? 'OpenRouter API timed out after 25s' : error.message }),
+      body: JSON.stringify({ error: isTimeout ? 'OpenRouter API timed out' : error.message }),
     };
   }
 };
