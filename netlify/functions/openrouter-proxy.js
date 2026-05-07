@@ -12,24 +12,28 @@ exports.handler = async (event) => {
     const requestBody = JSON.parse(event.body);
     const wantsStream = requestBody.stream === true;
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
+
     if (wantsStream) {
-      // Netlify Functions don't support true SSE, so we collect the stream
-      // and return chunked content. For real streaming, use Edge Functions.
-      // We'll return the full response but the client can simulate streaming.
       requestBody.stream = true;
+      let response;
+      try {
+        response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${API_KEY}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': event.headers.origin || 'https://your-site.netlify.app',
+            'X-Title': 'Claude Code Web',
+          },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
 
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${API_KEY}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': event.headers.origin || 'https://your-site.netlify.app',
-          'X-Title': 'Claude Code Web',
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      // Collect all SSE chunks
       const text = await response.text();
       const lines = text.split('\n');
       let fullContent = '';
@@ -58,16 +62,22 @@ exports.handler = async (event) => {
 
     // Non-streaming path
     requestBody.stream = false;
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': event.headers.origin || 'https://your-site.netlify.app',
-        'X-Title': 'Claude Code Web',
-      },
-      body: JSON.stringify(requestBody),
-    });
+    let response;
+    try {
+      response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': event.headers.origin || 'https://your-site.netlify.app',
+          'X-Title': 'Claude Code Web',
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
 
     const data = await response.json();
     return {
@@ -75,10 +85,13 @@ exports.handler = async (event) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     };
+
   } catch (error) {
+    const isTimeout = error.name === 'AbortError';
+    console.error(isTimeout ? 'OpenRouter timeout' : 'OpenRouter proxy error:', error);
     return {
-      statusCode: 500,
-      body: JSON.stringify({ error: error.message }),
+      statusCode: isTimeout ? 504 : 500,
+      body: JSON.stringify({ error: isTimeout ? 'OpenRouter API timed out after 25s' : error.message }),
     };
   }
 };
