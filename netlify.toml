@@ -1,3 +1,7 @@
 [build]
   command = "node netlify/inject-preview-bypass.js"
   functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+  timeout = 26          # seconds (max allowed on some plans)
