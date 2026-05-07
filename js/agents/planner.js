@@ -15,7 +15,7 @@ window.PlannerAgent = (() => {
     projectMemory,
     userMemory,
     systemPromptOverride,
-    manifest,                    // Phase 1B — module manifest (can be null)
+    manifest,
   }) {
 
     addToast('🔍 Analyzing repository...', 'info');
@@ -34,7 +34,6 @@ window.PlannerAgent = (() => {
     let sysPrompt;
 
     if (manifest) {
-      // Phase 1B — rich project structure from manifest
       const moduleList = Object.entries(manifest)
         .map(([path, entry]) =>
           `- ${path} (${entry.lineCount} lines)\n  desc: ${entry.description || 'no description'}\n  exports: [${(entry.exports || []).join(', ')}]\n  imports: [${(entry.imports || []).join(', ')}]\n  importedBy: [${(entry.importedBy || []).join(', ')}]`
@@ -71,7 +70,6 @@ Rules:
 - Descriptions must be brief and actionable.
 - No acyclic dependencies.`;
     } else {
-      // Fallback to original filename‑only prompt
       sysPrompt = `You are a senior software architect. Be concise.
 
 Repo: ${repo} (branch: ${branch})
@@ -144,48 +142,42 @@ Rules:
 
     plan.tasks = plan.tasks.slice(0, 4);
 
-    addToast(`Plan created: ${plan.tasks.length} tasks`, 'success');
+    // ---- Phase 1C: Use in-memory queue instead of GitHub Issues ----
+    window.TaskQueue.createMilestone(
+      plan.milestone_title || `Goal: ${goal.substring(0, 50)}`,
+      plan.analysis || ''
+    );
 
-    try {
-      await window.TaskManager.ensureLabels(repo, githubToken);
-
-      const milestone = await window.TaskManager.createMilestone(
-        repo,
-        plan.milestone_title || `Goal: ${goal.substring(0, 50)}`,
-        plan.analysis || '',
-        githubToken
+    const taskMap = []; // index -> task id for dependency resolution
+    for (let i = 0; i < plan.tasks.length; i++) {
+      const t = plan.tasks[i];
+      const depIds = t.depends_on_task_index != null
+        ? taskMap[t.depends_on_task_index] ? [taskMap[t.depends_on_task_index]] : []
+        : [];
+      const newTask = window.TaskQueue.addTask(
+        t.title,
+        t.description,
+        t.files || [],
+        depIds
       );
-
-      const issueMap = {};
-      const createdTasks = [];
-
-      for (let i = 0; i < plan.tasks.length; i++) {
-        const task = plan.tasks[i];
-        const blocking = task.depends_on_task_index != null
-          ? [issueMap[task.depends_on_task_index]].filter(Boolean)
-          : [];
-
-        const body = `**Files:** ${(task.files || []).join(', ')}\n\n${task.description}`;
-        const issue = await window.TaskManager.createTask(
-          repo, task.title, body, milestone.number, githubToken, blocking
-        );
-
-        issueMap[i] = issue.number;
-        createdTasks.push({ ...task, issueNumber: issue.number, html_url: issue.html_url });
-      }
-
-      // 🔥 Phase 0C: record plan creation in conversation memory
-      if (window.ConversationMemory) {
-        window.ConversationMemory.recordPlanCreated(repo, branch, goal);
-      }
-
-      addToast(`✅ ${createdTasks.length} tasks created`, 'success');
-      return { milestone, tasks: createdTasks, analysis: plan.analysis, issueMap };
-
-    } catch (e) {
-      addToast(`GitHub error: ${e.message}`, 'error');
-      return { error: 'GITHUB_ERROR', message: e.message, plan };
+      taskMap.push(newTask.id);
     }
+
+    const createdTasks = window.TaskQueue.getAllTasks();
+    addToast(`Plan created: ${createdTasks.length} tasks`, 'success');
+
+    // 🔥 Phase 0C: record plan creation in conversation memory
+    if (window.ConversationMemory) {
+      window.ConversationMemory.recordPlanCreated(repo, branch, goal);
+    }
+
+    return {
+      milestoneTitle: plan.milestone_title,
+      analysis: plan.analysis,
+      tasks: createdTasks,
+    };
+
+    // No GitHub API calls for task creation – all local
   }
 
   return { analyzeAndPlan };
