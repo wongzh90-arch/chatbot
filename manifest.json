@@ -1,0 +1,397 @@
+{
+  "js/agents/executor.js": {
+    "description": "🔥 Phase 0C: record task failure",
+    "exports": [
+      "ExecutorAgent"
+    ],
+    "imports": [
+      "TaskManager",
+      "GitHubService",
+      "ContextMatcher",
+      "LLMProvider",
+      "ConversationMemory"
+    ],
+    "importedBy": [
+      "js/agents/orchestrator.js"
+    ],
+    "lineCount": 238,
+    "lastUpdated": "2026-05-07T00:57:22.795Z"
+  },
+  "js/agents/orchestrator.js": {
+    "description": "js/agents/orchestrator.js",
+    "exports": [
+      "Orchestrator"
+    ],
+    "imports": [
+      "PlannerAgent",
+      "TaskManager",
+      "ExecutorAgent",
+      "ReviewerAgent",
+      "ConversationMemory"
+    ],
+    "importedBy": [
+      "js/app.jsx",
+      "js/handlers/useCommandHandler.js"
+    ],
+    "lineCount": 344,
+    "lastUpdated": "2026-05-07T00:57:22.797Z"
+  },
+  "js/agents/planner.js": {
+    "description": "🔥 Phase 0C: record plan creation in conversation memory",
+    "exports": [
+      "PlannerAgent"
+    ],
+    "imports": [
+      "ContextMatcher",
+      "LLMProvider",
+      "TaskManager",
+      "ConversationMemory"
+    ],
+    "importedBy": [
+      "js/agents/orchestrator.js"
+    ],
+    "lineCount": 136,
+    "lastUpdated": "2026-05-07T00:57:22.797Z"
+  },
+  "js/agents/reviewer.js": {
+    "description": "Only review tasks that are DONE and haven't been reviewed in this cycle.",
+    "exports": [
+      "ReviewerAgent"
+    ],
+    "imports": [
+      "TaskManager",
+      "GitHubService",
+      "ContextMatcher",
+      "LLMProvider"
+    ],
+    "importedBy": [
+      "js/agents/orchestrator.js"
+    ],
+    "lineCount": 152,
+    "lastUpdated": "2026-05-07T00:57:22.797Z"
+  },
+  "js/app.jsx": {
+    "description": "js/app.jsx — composition root, no business logic.",
+    "exports": [],
+    "imports": [
+      "Orchestrator"
+    ],
+    "importedBy": [],
+    "lineCount": 244,
+    "lastUpdated": "2026-05-07T00:57:22.797Z"
+  },
+  "js/components/ChatPane.jsx": {
+    "description": "Header",
+    "exports": [
+      "ChatPane"
+    ],
+    "imports": [
+      "IntentDetector",
+      "WebSearchService"
+    ],
+    "importedBy": [],
+    "lineCount": 242,
+    "lastUpdated": "2026-05-07T00:57:22.797Z"
+  },
+  "js/components/LeftPane.jsx": {
+    "description": null,
+    "exports": [
+      "LeftPane"
+    ],
+    "imports": [],
+    "importedBy": [],
+    "lineCount": 36,
+    "lastUpdated": "2026-05-07T00:57:22.797Z"
+  },
+  "js/components/Navbar.jsx": {
+    "description": "Brand",
+    "exports": [
+      "Navbar"
+    ],
+    "imports": [],
+    "importedBy": [],
+    "lineCount": 222,
+    "lastUpdated": "2026-05-07T00:57:22.797Z"
+  },
+  "js/handlers/useCommandHandler.js": {
+    "description": "js/handlers/useCommandHandler.js",
+    "exports": [
+      "useCommandHandler"
+    ],
+    "imports": [
+      "DiffUtils",
+      "Orchestrator",
+      "TaskManager",
+      "WebSearchService",
+      "LLMProvider",
+      "COMMANDS",
+      "GitHubService",
+      "ConversationMemory",
+      "ManifestParser",
+      "IntentDetector",
+      "ContextMatcher"
+    ],
+    "importedBy": [],
+    "lineCount": 717,
+    "lastUpdated": "2026-05-07T00:57:22.797Z"
+  },
+  "js/services/conversationMemory.js": {
+    "description": "js/services/conversationMemory.js",
+    "exports": [
+      "ConversationMemory"
+    ],
+    "imports": [],
+    "importedBy": [
+      "js/agents/executor.js",
+      "js/agents/orchestrator.js",
+      "js/agents/planner.js",
+      "js/handlers/useCommandHandler.js",
+      "js/state/useConversationState.js"
+    ],
+    "lineCount": 129,
+    "lastUpdated": "2026-05-07T00:57:22.797Z"
+  },
+  "js/services/github.js": {
+    "description": null,
+    "exports": [
+      "GitHubService"
+    ],
+    "imports": [],
+    "importedBy": [
+      "js/agents/executor.js",
+      "js/agents/reviewer.js",
+      "js/handlers/useCommandHandler.js",
+      "js/state/useGitHubActions.js",
+      "js/state/useWorkspaceState.js"
+    ],
+    "lineCount": 106,
+    "lastUpdated": "2026-05-07T00:57:22.797Z"
+  },
+  "js/services/llmProvider.js": {
+    "description": "---------- non‑streaming ----------",
+    "exports": [
+      "LLMProvider"
+    ],
+    "imports": [],
+    "importedBy": [
+      "js/agents/executor.js",
+      "js/agents/planner.js",
+      "js/agents/reviewer.js",
+      "js/handlers/useCommandHandler.js",
+      "js/utils/manifestParser.js",
+      "js/utils/sanityCheck.js"
+    ],
+    "lineCount": 109,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  },
+  "js/services/modelRegistry.js": {
+    "description": "Hardcoded fallback that works without any API call",
+    "exports": [
+      "ModelRegistry"
+    ],
+    "imports": [],
+    "importedBy": [
+      "js/state/useProviderState.js"
+    ],
+    "lineCount": 30,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  },
+  "js/services/openrouter.js": {
+    "description": "Simulates streaming by progressively revealing text",
+    "exports": [
+      "OpenRouterService"
+    ],
+    "imports": [],
+    "importedBy": [],
+    "lineCount": 86,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  },
+  "js/services/taskManager.js": {
+    "description": "422 = milestone already exists with this title — find it and reuse",
+    "exports": [
+      "TaskManager"
+    ],
+    "imports": [],
+    "importedBy": [
+      "js/agents/executor.js",
+      "js/agents/orchestrator.js",
+      "js/agents/planner.js",
+      "js/agents/reviewer.js",
+      "js/handlers/useCommandHandler.js"
+    ],
+    "lineCount": 208,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  },
+  "js/services/webSearch.js": {
+    "description": "Search the web using Firecrawl (via Netlify proxy).",
+    "exports": [
+      "WebSearchService"
+    ],
+    "imports": [],
+    "importedBy": [
+      "js/components/ChatPane.jsx",
+      "js/handlers/useCommandHandler.js"
+    ],
+    "lineCount": 59,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  },
+  "js/state/useConversationState.js": {
+    "description": "js/state/useConversationState.js",
+    "exports": [
+      "useConversationState"
+    ],
+    "imports": [
+      "ConversationMemory"
+    ],
+    "importedBy": [],
+    "lineCount": 129,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  },
+  "js/state/useGitHubActions.js": {
+    "description": "js/state/useGitHubActions.js",
+    "exports": [
+      "useGitHubActions"
+    ],
+    "imports": [
+      "GitHubService"
+    ],
+    "importedBy": [],
+    "lineCount": 159,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  },
+  "js/state/useProviderState.js": {
+    "description": "js/state/useProviderState.js",
+    "exports": [
+      "useProviderState"
+    ],
+    "imports": [
+      "ModelRegistry"
+    ],
+    "importedBy": [],
+    "lineCount": 80,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  },
+  "js/state/useWorkspaceState.js": {
+    "description": "js/state/useWorkspaceState.js",
+    "exports": [
+      "useWorkspaceState"
+    ],
+    "imports": [
+      "GitHubService"
+    ],
+    "importedBy": [],
+    "lineCount": 78,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  },
+  "js/utils/ErrorBoundary.jsx": {
+    "description": null,
+    "exports": [
+      "ErrorBoundary"
+    ],
+    "imports": [],
+    "importedBy": [],
+    "lineCount": 32,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  },
+  "js/utils/agentSkills.js": {
+    "description": "js/utils/agentSkills.js",
+    "exports": [
+      "processAgentSkills"
+    ],
+    "imports": [],
+    "importedBy": [],
+    "lineCount": 78,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  },
+  "js/utils/commands.js": {
+    "description": "js/utils/commands.js",
+    "exports": [
+      "COMMANDS"
+    ],
+    "imports": [],
+    "importedBy": [
+      "js/handlers/useCommandHandler.js"
+    ],
+    "lineCount": 30,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  },
+  "js/utils/contextMatcher.js": {
+    "description": "Select the most relevant preferences for a given context.",
+    "exports": [
+      "ContextMatcher"
+    ],
+    "imports": [],
+    "importedBy": [
+      "js/agents/executor.js",
+      "js/agents/planner.js",
+      "js/agents/reviewer.js",
+      "js/handlers/useCommandHandler.js"
+    ],
+    "lineCount": 32,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  },
+  "js/utils/diffUtils.js": {
+    "description": "js/utils/diffUtils.js",
+    "exports": [
+      "DiffUtils"
+    ],
+    "imports": [],
+    "importedBy": [
+      "js/handlers/useCommandHandler.js"
+    ],
+    "lineCount": 118,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  },
+  "js/utils/intentDetector.js": {
+    "description": "Search",
+    "exports": [
+      "IntentDetector"
+    ],
+    "imports": [],
+    "importedBy": [
+      "js/components/ChatPane.jsx",
+      "js/handlers/useCommandHandler.js"
+    ],
+    "lineCount": 172,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  },
+  "js/utils/manifestParser.js": {
+    "description": "js/utils/manifestParser.js",
+    "exports": [
+      "ManifestParser",
+      "X"
+    ],
+    "imports": [
+      "X",
+      "LLMProvider"
+    ],
+    "importedBy": [
+      "js/handlers/useCommandHandler.js",
+      "js/utils/manifestParser.js"
+    ],
+    "lineCount": 228,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  },
+  "js/utils/markdown.js": {
+    "description": null,
+    "exports": [
+      "safeMarkdownToReact"
+    ],
+    "imports": [],
+    "importedBy": [],
+    "lineCount": 39,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  },
+  "js/utils/sanityCheck.js": {
+    "description": null,
+    "exports": [
+      "sanityCheck"
+    ],
+    "imports": [
+      "LLMProvider"
+    ],
+    "importedBy": [],
+    "lineCount": 23,
+    "lastUpdated": "2026-05-07T00:57:22.798Z"
+  }
+}
