@@ -1,13 +1,10 @@
 // js/app.jsx --- composition root, no business logic.
-// Added: ThemeProvider wrapper, theme-aware root classes.
+// Added: ThemeProvider wrapper, theme-aware root, sidebar, and prop passing.
 
 const { useState, useEffect } = React;
 
 function App() {
-  // ── Theme ───────────────────────────────────────────────────
-  // useTheme must be called inside a component that is wrapped by ThemeProvider.
-  // We'll wrap the entire App in ThemeProvider, so we can use it here.
-  // Actually, useTheme must be inside the provider. So we'll create a wrapper.
+  // Wrap everything in ThemeProvider so useTheme() is available inside AppContent
   return React.createElement(window.ThemeProvider, null,
     React.createElement(AppContent)
   );
@@ -118,17 +115,21 @@ function AppContent() {
     return await github.commitChange(path, content, sha, message);
   };
 
-  // ── Theme-aware class names ──────────────────────────────────
+  // ── Theme-aware class sets ────────────────────────────────────
   const rootBg = theme === 'dark' ? 'bg-zinc-950 text-zinc-200' : 'bg-white text-zinc-900';
-  const sidebarBg = theme === 'dark' ? 'bg-zinc-950 border-zinc-800' : 'bg-gray-50 border-gray-200';
-  const chatBg = theme === 'dark' ? 'bg-zinc-950 border-zinc-900' : 'bg-white border-gray-200';
-  // You can further refine these or pass `theme` down to components.
 
-  // ── Render ────────────────────────────────────────────────────
+  // Sidebar (conversation list)
+  const sidebarBg = theme === 'dark' ? 'bg-zinc-950 border-zinc-800' : 'bg-gray-50 border-gray-200';
+  const sidebarText = theme === 'dark' ? 'text-zinc-200' : 'text-gray-800';
+  const sidebarMuted = theme === 'dark' ? 'text-zinc-600' : 'text-gray-400';
+  const sidebarHover = theme === 'dark' ? 'hover:bg-zinc-900 hover:text-zinc-300' : 'hover:bg-gray-100 hover:text-gray-800';
+  const sidebarActive = theme === 'dark' ? 'bg-zinc-800 text-zinc-200' : 'bg-blue-50 text-blue-700';
+  const sidebarBorder = theme === 'dark' ? 'border-zinc-900/50' : 'border-gray-200';
+
   return React.createElement('div', {
     className: `flex flex-col h-screen ${rootBg} overflow-hidden`
   },
-    // Toasts
+    // Toasts (keep dark for visibility, but can be themed later)
     React.createElement('div', {
       className: 'fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none'
     },
@@ -142,7 +143,8 @@ function AppContent() {
         }`
       }, t.message))
     ),
-    // Navbar (pass theme and toggleTheme)
+
+    // Navbar (pass theme + toggle)
     React.createElement(window.Navbar, {
       theme, toggleTheme,
       workspace: workspace.workspace,
@@ -172,19 +174,20 @@ function AppContent() {
       reasoningEffort: provider.reasoningEffort,
       setReasoningEffort: provider.setReasoningEffort,
     }),
+
     // Body
     React.createElement(window.ErrorBoundary, null,
       React.createElement('div', { className: 'flex flex-1 overflow-hidden' },
-        // Conversation list sidebar
+
+        // Conversation list sidebar (theme‑aware)
         React.createElement('div', {
           className: `w-36 ${sidebarBg} border-r flex flex-col shrink-0`
         },
-          // ... (rest of the conversation list code unchanged) ...
           React.createElement('div', {
-            className: 'px-2 py-2 border-b border-zinc-800 flex items-center justify-between'
+            className: `px-2 py-2 border-b ${sidebarBorder} flex items-center justify-between`
           },
             React.createElement('span', {
-              className: 'text-[10px] font-bold uppercase text-zinc-600 tracking-widest'
+              className: `text-[10px] font-bold uppercase ${sidebarMuted} tracking-widest`
             }, 'Chats'),
             React.createElement('button', {
               onClick: conversation.createNewConversation,
@@ -196,10 +199,10 @@ function AppContent() {
               React.createElement('div', {
                 key: conv.id,
                 onClick: () => conversation.setActiveConversationId(conv.id),
-                className: `group flex items-center justify-between px-2 py-2 cursor-pointer transition border-b border-zinc-900/50 ${
+                className: `group flex items-center justify-between px-2 py-2 cursor-pointer transition border-b ${sidebarBorder} ${
                   conv.id === conversation.activeConversationId
-                    ? 'bg-zinc-800 text-zinc-200'
-                    : 'text-zinc-600 hover:bg-zinc-900 hover:text-zinc-300'
+                    ? sidebarActive
+                    : `${sidebarMuted} ${sidebarHover}`
                 }`
               },
                 React.createElement('span', { className: 'text-[11px] truncate flex-1' }, conv.title),
@@ -211,7 +214,8 @@ function AppContent() {
             )
           )
         ),
-        // Left pane
+
+        // Left pane (theme prop passed)
         React.createElement(window.LeftPane, {
           theme,
           fileTree: github.fileTree,
@@ -223,7 +227,8 @@ function AppContent() {
           isLoading: github.isLoading,
           onFetchFileTree: github.fetchFileTree,
         }),
-        // Chat pane
+
+        // Chat pane (theme prop passed)
         React.createElement(window.ChatPane, {
           theme,
           messages: conversation.messages,
