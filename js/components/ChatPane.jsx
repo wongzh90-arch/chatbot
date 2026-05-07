@@ -9,6 +9,7 @@ window.ChatPane = ({
   chatScrollRef, inputRef,
   streamingMessage,
   conversationId,
+  statusMessage,
 }) => {
   // ── Missing definitions added ──────────────────────────────
   const textareaRef = React.useRef(null);
@@ -49,6 +50,32 @@ window.ChatPane = ({
         className: `${theme === 'dark' ? 'text-zinc-700' : 'text-gray-400'} text-xs ml-auto`
       }, `${messages.filter(m => m.role === 'user').length} msg${messages.filter(m => m.role === 'user').length !== 1 ? 's' : ''}`)
     ),
+    // Status bar — shown while agent is working
+    statusMessage ? React.createElement('div', {
+      className: `px-4 py-1.5 flex items-center gap-2 shrink-0 border-b ${
+        theme === 'dark'
+          ? 'bg-amber-950/40 border-amber-900/40 text-amber-300'
+          : 'bg-amber-50 border-amber-200 text-amber-700'
+      }`
+    },
+      // Animated spinner dots
+      React.createElement('span', { className: 'flex gap-0.5 shrink-0' },
+        [0, 1, 2].map(i => React.createElement('span', {
+          key: i,
+          style: {
+            display: 'inline-block',
+            width: 4, height: 4,
+            borderRadius: '50%',
+            background: 'currentColor',
+            opacity: 0.8,
+            animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite`,
+          }
+        }))
+      ),
+      React.createElement('span', {
+        className: 'text-xs font-mono truncate'
+      }, statusMessage)
+    ) : null,
     // Messages area
     React.createElement('div', {
       ref: chatScrollRef,
@@ -58,26 +85,16 @@ window.ChatPane = ({
     ),
     // Input area
     React.createElement('div', { className: `border-t ${inputBg} ${inputContainerBg} backdrop-blur flex-shrink-0` },  // <-- CHANGED: no more hardcoded bg-zinc-950/95
-      // Command hints — filtered & narrowing as user types
-      showCmdHints && (() => {
-        const typed = inputPrompt.split(' ')[0];
-        const filtered = window.COMMANDS.filter(c =>
-          typed === '/' || c.cmd.startsWith(typed)
-        );
-        if (!filtered.length) return null;
-        return React.createElement('div', { className: 'px-3 pt-1 flex flex-col gap-0.5 max-h-48 overflow-y-auto custom-scrollbar' },
-          filtered.map(cmd =>
-            React.createElement('button', {
-              key: cmd.cmd,
-              onClick: () => onCmdHintClick(cmd.cmd),
-              className: 'text-left text-[11px] px-2 py-1 rounded bg-zinc-800/80 hover:bg-zinc-700 transition flex gap-2 items-baseline'
-            },
-              React.createElement('span', { className: 'text-amber-400 font-mono shrink-0' }, cmd.cmd),
-              React.createElement('span', { className: 'text-zinc-500 truncate' }, cmd.desc)
-            )
-          )
-        );
-      })(),
+      // Command hints
+      showCmdHints && React.createElement('div', { className: 'px-3 pt-1 flex gap-1 flex-wrap' },
+        window.COMMANDS.slice(0, 8).map(cmd =>
+          React.createElement('button', {
+            key: cmd.cmd,
+            onClick: () => onCmdHintClick(cmd.cmd),
+            className: 'text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition'
+          }, cmd.cmd)
+        )
+      ),
       // Intent suggestion
       React.createElement('div', { className: 'px-3 pt-1' },
         (() => {
