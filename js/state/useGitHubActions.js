@@ -1,4 +1,3 @@
-================================================
 // js/state/useGitHubActions.js
 // Owns: file tree, GitHub read/write operations.
 // NOTE: activeFilePath / activeFileContent / fileSha are GONE.
