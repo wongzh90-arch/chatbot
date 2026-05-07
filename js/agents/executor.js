@@ -1,4 +1,6 @@
+// js/agents/executor.js
 window.ExecutorAgent = (() => {
+
   function extractUpdateEditor(text) {
     if (typeof text !== 'string') return null;
     const re = /<skill\s+name=["']update_editor["'](?:\s+file=["']([^"']+)["'])?\s*>([\s\S]*?)<\/skill>/i;
@@ -18,12 +20,15 @@ window.ExecutorAgent = (() => {
     reasoningEffort,
     projectMemory,
     userMemory,
+    manifest,                    // Phase 1B
     systemPromptOverride,
     addToast,
     setActiveFileContent,
     setActiveFilePath,
     setActiveTab,
   }) {
+
+    // Reset stuck in‑progress tasks
     const stuckTasks = tasks.filter(t =>
       t.labels.some(l => l.name === 'task:in_progress')
     );
@@ -42,6 +47,7 @@ window.ExecutorAgent = (() => {
       const unblocked = window.TaskManager.isUnblocked(t, tasks);
       return isTodo && unblocked;
     });
+
     if (!todoTask) return null;
 
     try {
@@ -63,6 +69,7 @@ window.ExecutorAgent = (() => {
     const targetFiles = fileMatch
       ? fileMatch[1].split(',').map(f => f.trim()).filter(Boolean)
       : [];
+
     const description = body.replace(/\*\*Files:\*\*.*/, '').trim();
 
     if (targetFiles.length === 0) {
@@ -75,32 +82,52 @@ window.ExecutorAgent = (() => {
       };
     }
 
+    // ---- Phase 1B: identify and load files via manifest ----
+    let filesToLoad = [];
+    if (manifest) {
+      filesToLoad = window.ContextBuilder.identifyRequiredFiles({
+        targetFiles,
+        manifest,
+        maxFiles: 10
+      });
+    } else {
+      filesToLoad = targetFiles.slice(0, 2);
+    }
+
     const fileContents = {};
-    for (const path of targetFiles.slice(0, 2)) {
+    for (const path of filesToLoad) {
       try {
         const { content, sha } = await window.GitHubService.loadFileContent(repo, branch, path, githubToken);
-        const lines = content.split('\n');
-        const truncated = lines.length > 200
-          ? lines.slice(0, 200).join('\n') + '\n\n// ... (truncated for context)'
-          : content;
-        fileContents[path] = { content, sha, preview: truncated, exists: true };
+        fileContents[path] = { content, sha, preview: content, exists: true };
       } catch (e) {
         fileContents[path] = { content: '', sha: null, preview: '(new file)', exists: false };
       }
     }
 
+    // Build context
+    const targetContents = targetFiles.map(p => ({ path: p, content: (fileContents[p]?.content || '') }));
+    const relatedPaths = filesToLoad.filter(p => !targetFiles.includes(p));
+    const relatedContents = relatedPaths.map(p => ({ path: p, content: fileContents[p]?.content || '' }));
+
+    const contextResult = window.ContextBuilder.buildContext({
+      targetContents,
+      relatedContents,
+      manifest,
+      tokenBudget: 20000
+    });
+
     let sysPrompt = `You are a coding assistant. Implement this task by producing the FULL updated file content.
+
 Repo: ${repo} | Branch: ${branch}
 Task: ${todoTask.title}
 Instructions: ${description}
+
 Target files: ${targetFiles.join(', ')}
 
-Current file contents:
-${Object.entries(fileContents).map(([p, { preview, exists }]) =>
-  `--- ${p} ${exists ? '' : '(does not exist yet)'} ---\n${preview}`
-).join('\n\n')}
+${contextResult.contextString}
 
-CRITICAL OUTPUT FORMAT --- your reply must contain exactly one skill block:
+CRITICAL OUTPUT FORMAT – your reply must contain exactly one skill block:
+
 <skill name="update_editor" file="path/to/file">
 FULL FILE CONTENT HERE
 </skill>
@@ -114,17 +141,20 @@ Rules:
     if (systemPromptOverride && systemPromptOverride.trim()) {
       sysPrompt = systemPromptOverride + '\n\n' + sysPrompt;
     }
+
     if (userMemory && userMemory.length) {
       const relevantPrefs = window.ContextMatcher.selectRelevant(userMemory, todoTask.title + ' ' + description, 2);
       if (relevantPrefs.length) {
         sysPrompt += '\n\nUSER PREFS:\n' + relevantPrefs.join('\n');
       }
     }
+
     if (projectMemory && projectMemory.length) {
       sysPrompt += '\n\nPROJECT MEMORY:\n' + projectMemory.slice(0, 3).join('\n');
     }
 
     const userContent = `Implement: ${todoTask.title}`;
+
     let reply;
     try {
       reply = await window.LLMProvider.chatCompletion({
@@ -147,6 +177,7 @@ Rules:
     }
 
     const extracted = extractUpdateEditor(reply.content || '');
+
     if (!extracted) {
       await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'TODO', githubToken);
       await window.TaskManager.addComment(repo, todoTask.number,
@@ -183,6 +214,7 @@ Rules:
     }
 
     const oldSha = fileContents[filePath]?.sha || null;
+
     try {
       await window.GitHubService.commitFile(
         repo, branch, filePath,
@@ -194,12 +226,9 @@ Rules:
     } catch (err) {
       addToast(`Commit failed for ${filePath}: ${err.message}`, 'error');
       await window.TaskManager.updateTaskStatus(repo, todoTask.number, 'TODO', githubToken);
-
-      // 🔥 Phase 0C: record task failure
       if (window.ConversationMemory) {
         window.ConversationMemory.recordTaskCompleted(repo, branch, todoTask.title, false);
       }
-
       return {
         failed: true,
         taskNumber: todoTask.number,
@@ -220,7 +249,6 @@ Rules:
       addToast(`Could not mark task #${todoTask.number} as done: ${e.message}`, 'warning');
     }
 
-    // 🔥 Phase 0C: record task success
     if (window.ConversationMemory) {
       window.ConversationMemory.recordTaskCompleted(repo, branch, todoTask.title, true);
     }
