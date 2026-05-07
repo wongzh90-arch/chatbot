@@ -3,6 +3,7 @@
 // Survives across conversations for the same repo+branch.
 window.ConversationMemory = (() => {
   const STORAGE_PREFIX = 'repo_context_';
+  const ARCH_PREFIX = 'arch_';
   const MAX_DECISIONS = 20;
   const MAX_FAILED_ATTEMPTS = 10;
 
@@ -33,7 +34,6 @@ window.ConversationMemory = (() => {
       lastUpdated: null,
     };
     const merged = { ...current, ...updates, lastUpdated: new Date().toISOString() };
-    // Trim arrays
     if (merged.decisions.length > MAX_DECISIONS) merged.decisions = merged.decisions.slice(-MAX_DECISIONS);
     if (merged.failedAttempts.length > MAX_FAILED_ATTEMPTS) merged.failedAttempts = merged.failedAttempts.slice(-MAX_FAILED_ATTEMPTS);
     localStorage.setItem(key, JSON.stringify(merged));
@@ -44,12 +44,10 @@ window.ConversationMemory = (() => {
     localStorage.removeItem(getKey(repo, branch));
   }
 
-  // No-op: memory is per repo/branch, not per conversationId
   function deleteForConversation(conversationId) {}
 
   function onAssistantMessage(content, repo, branch) {
     if (!content || !repo || !branch) return;
-    // Fast regex detection of decisions
     const decisionPattern = /(?:decision|decided|I'll remember)/i;
     if (decisionPattern.test(content)) {
       const current = get(repo, branch);
@@ -63,7 +61,6 @@ window.ConversationMemory = (() => {
   }
 
   function buildMessageContext(messages, summary, budget = 40000) {
-    // Rough token estimation: 1 token ≈ 4 chars
     let context = '';
     if (summary) {
       context += `Summary of earlier conversation:\n${summary}\n\n`;
@@ -82,8 +79,25 @@ window.ConversationMemory = (() => {
     return context + recent.join('\n');
   }
 
-  // ── Trigger events (called by agents) ──────────────────────
+  // ── Architecture memory (per repo, not branch) ─────────────────
+  function setArchitecture(repo, archData) {
+    if (!repo) return;
+    const key = `${ARCH_PREFIX}${repo}`;
+    try {
+      localStorage.setItem(key, JSON.stringify(archData));
+    } catch (e) { console.warn('Failed to save architecture', e); }
+  }
 
+  function getArchitecture(repo) {
+    if (!repo) return null;
+    const key = `${ARCH_PREFIX}${repo}`;
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }
+
+  // ── Trigger events (called by agents) ──────────────────────
   function recordPlanCreated(repo, branch, goal) {
     set(repo, branch, {
       goal,
@@ -110,7 +124,6 @@ window.ConversationMemory = (() => {
     const current = get(repo, branch) || {};
     current.phase = success ? 'done' : 'error';
     current.lastAction = success ? 'Run completed successfully' : 'Run failed';
-    // Optionally extract decisions to projectMemory?
     set(repo, branch, current);
   }
 
@@ -124,5 +137,7 @@ window.ConversationMemory = (() => {
     recordPlanCreated,
     recordTaskCompleted,
     recordRunCompleted,
+    setArchitecture,
+    getArchitecture,
   };
 })();
