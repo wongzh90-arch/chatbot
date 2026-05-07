@@ -44,6 +44,12 @@ function AppContent() {
   useEffect(() => {
     localStorage.setItem('USER_MEMORY', JSON.stringify(userMemory));
   }, [userMemory]);
+  // ADD after the existing useEffects, before the GitHub actions block:
+  useEffect(() => {
+    if (conversation.isRunActive) setActiveTab('tasks');
+    else setActiveTab('chat');
+  }, [conversation.isRunActive]);
+  
   // ── GitHub actions ────────────────────────────────────────────
   const github = window.useGitHubActions({
     currentRepo: workspace.currentRepo,
@@ -201,19 +207,6 @@ function AppContent() {
           )
         ),
         // ── Tab-driven main area ──────────────────────────────────
-        // Files tab: LeftPane full width, no ChatPane
-        activeTab === 'tree' && React.createElement(window.LeftPane, {
-          theme,
-          fileTree: github.fileTree,
-          onFileClick: (path) => { handleFileClick(path); setActiveTab('chat'); },
-          recentlyModified: github.recentlyModified,
-          memory: projectMemory,
-          orchestratorTasks,
-          isRunActive: conversation.isRunActive,
-          isLoading: github.isLoading,
-          onFetchFileTree: github.fetchFileTree,
-          fullWidth: true,
-        }),
         // Tasks tab: expanded task list full width
         activeTab === 'tasks' && React.createElement('div', {
           className: `flex-1 flex flex-col overflow-hidden ${theme === 'dark' ? 'bg-zinc-950' : 'bg-white'}`
@@ -270,7 +263,7 @@ function AppContent() {
           )
         ),
         // Chat tab (default) + Editor tab: LeftPane sidebar + ChatPane
-        (activeTab === 'chat' || activeTab === 'editor') && React.createElement(React.Fragment, null,
+          activeTab === 'chat' && React.createElement(React.Fragment, null,
           React.createElement(window.LeftPane, {
             theme,
             fileTree: github.fileTree,
