@@ -1,4 +1,8 @@
+// js/components/Navbar.jsx
+// Added: theme toggle button
+
 window.Navbar = ({
+  theme, toggleTheme,                  // NEW
   workspace, setWorkspace,
   currentRepo, setCurrentRepo,
   currentBranch, setCurrentBranch,
@@ -17,14 +21,12 @@ window.Navbar = ({
 }) => {
   const [showSettings, setShowSettings] = React.useState(false);
   const [freeOnly, setFreeOnly] = React.useState(false);
-
   const isFreeModel = (model) => {
     if (model.free) return true;
     const id = model.value.toLowerCase();
     const label = model.label.toLowerCase();
     return id.includes(':free') || label.includes('(free)') || label.includes('free');
   };
-
   const filteredModels = (provider === 'openrouter' && freeOnly)
     ? models.filter(isFreeModel)
     : models;
@@ -36,18 +38,20 @@ window.Navbar = ({
     { id: 'tasks', label: '📋', title: 'Tasks' },
   ];
 
+  const navbarBg = theme === 'dark'
+    ? 'bg-zinc-900 border-zinc-800'
+    : 'bg-white border-gray-200';
+
   return React.createElement('header', {
-    className: 'bg-zinc-900 border-b border-zinc-800 shrink-0 z-20'
+    className: `${navbarBg} border-b shrink-0 z-20`
   },
     React.createElement('div', { className: 'flex items-center gap-3 px-4 py-2.5 flex-wrap' },
-
       // Brand
       React.createElement('span', { className: 'font-bold text-sm bg-gradient-to-r from-orange-400 to-amber-500 bg-clip-text text-transparent whitespace-nowrap' },
         'Claude Code Web'
       ),
-
       // Provider toggle
-      React.createElement('div', { className: 'flex bg-zinc-950 rounded-lg p-0.5 border border-zinc-800 shrink-0' },
+      React.createElement('div', { className: 'flex bg-zinc-950/50 rounded-lg p-0.5 border border-zinc-700 shrink-0' },
         ['deepseek', 'openrouter'].map(p =>
           React.createElement('button', {
             key: p,
@@ -65,9 +69,8 @@ window.Navbar = ({
           }, p === 'deepseek' ? '🧠 DeepSeek' : '🔷 OpenRouter')
         )
       ),
-
       // Workspace toggle
-      React.createElement('div', { className: 'flex bg-zinc-950 rounded-lg p-0.5 border border-zinc-800 shrink-0' },
+      React.createElement('div', { className: 'flex bg-zinc-950/50 rounded-lg p-0.5 border border-zinc-700 shrink-0' },
         ['self', 'target'].map(ws =>
           React.createElement('button', {
             key: ws,
@@ -78,7 +81,6 @@ window.Navbar = ({
           }, ws === 'self' ? '🛠️ Self' : '🎯 Target')
         )
       ),
-
       // Repo + branch
       React.createElement('div', {
         className: `flex items-center gap-1.5 px-2 py-1 rounded-lg border text-xs ${
@@ -101,14 +103,12 @@ window.Navbar = ({
           className: 'bg-transparent outline-none text-zinc-400 w-16 placeholder-zinc-700 font-mono text-xs'
         })
       ),
-
       // Fetch
       React.createElement('button', {
         onClick: onFetchFileTree,
         disabled: isLoading,
         className: 'px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg border border-zinc-700 transition disabled:opacity-40 text-xs font-bold'
       }, isLoading ? '⟳' : 'Fetch'),
-
       // Model select
       React.createElement('select', {
         value: selectedModel,
@@ -121,9 +121,10 @@ window.Navbar = ({
           React.createElement('option', { key: m.value, value: m.value }, m.label)
         )
       ),
-
-      // Free only filter (only OpenRouter)
-      provider === 'openrouter' && React.createElement('label', { className: 'flex items-center gap-1 text-xs text-zinc-500 cursor-pointer whitespace-nowrap' },
+      // Free only filter
+      provider === 'openrouter' && React.createElement('label', {
+        className: 'flex items-center gap-1 text-xs text-zinc-500 cursor-pointer whitespace-nowrap'
+      },
         React.createElement('input', {
           type: 'checkbox',
           checked: freeOnly,
@@ -132,11 +133,9 @@ window.Navbar = ({
         }),
         'Free only'
       ),
-
       // Spacer
       React.createElement('div', { className: 'flex-1' }),
-
-      // Thinking mode (DeepSeek only)
+      // Thinking mode
       provider === 'deepseek' && React.createElement('button', {
         onClick: () => setThinkingMode(!thinkingMode),
         title: 'Toggle thinking / reasoning mode',
@@ -144,7 +143,6 @@ window.Navbar = ({
           thinkingMode ? 'bg-purple-600 text-white' : 'bg-zinc-800 text-zinc-500'
         }`
       }, '🧠 Thinking ' + (thinkingMode ? 'ON' : 'OFF')),
-
       // Tab buttons (desktop)
       React.createElement('div', { className: 'hidden lg:flex gap-1' },
         tabs.map(tab => React.createElement('button', {
@@ -156,21 +154,25 @@ window.Navbar = ({
               ? 'bg-zinc-700 text-white'
               : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
           }`
-        }, `${tab.label} ${tab.title}`)
-        )
+        }, `${tab.label} ${tab.title}`))
       ),
-
+      // Theme toggle button (NEW)
+      React.createElement('button', {
+        onClick: toggleTheme,
+        title: 'Toggle dark/light mode',
+        className: 'p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition text-sm'
+      }, theme === 'dark' ? '☀️' : '🌙'),
       // Settings toggle
       React.createElement('button', {
         onClick: () => setShowSettings(s => !s),
         className: 'p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition text-sm'
       }, '⚙️')
     ),
-
-    // Settings drawer
+    // Settings drawer (unchanged, but you might want to theme it later)
     showSettings && React.createElement('div', {
       className: 'border-t border-zinc-800 px-4 py-3 flex flex-wrap items-center gap-3 text-xs bg-zinc-950/50'
     },
+      // ... (rest of settings exactly as before) ...
       React.createElement('input', {
         type: 'password',
         placeholder: 'GitHub PAT',
@@ -194,7 +196,6 @@ window.Navbar = ({
         }),
         React.createElement('span', null, 'Remember keys')
       ),
-      // System prompt override
       React.createElement('div', { className: 'w-full' },
         React.createElement('label', { className: 'block text-zinc-500 text-xs mb-1' }, 'Custom instructions'),
         React.createElement('textarea', {
@@ -210,11 +211,8 @@ window.Navbar = ({
         tabs.map(tab => React.createElement('button', {
           key: tab.id,
           onClick: () => { setActiveTab(tab.id); setShowSettings(false); },
-          className: `px-2.5 py-1 rounded-lg text-xs ${
-            activeTab === tab.id ? 'bg-zinc-700 text-white' : 'text-zinc-500 bg-zinc-800'
-          }`
-        }, tab.label)
-        )
+          className: `px-2.5 py-1 rounded-lg text-xs ${activeTab === tab.id ? 'bg-zinc-700 text-white' : 'text-zinc-500 bg-zinc-800'}`
+        }, tab.label))
       )
     )
   );
