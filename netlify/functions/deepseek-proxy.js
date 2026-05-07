@@ -1,4 +1,3 @@
-// netlify/functions/deepseek-proxy.js
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
@@ -6,16 +5,15 @@ exports.handler = async (event) => {
 
   const API_KEY = process.env.DEEPSEEK_API_KEY;
   if (!API_KEY) {
-    return { statusCode: 500, body: 'Server misconfigured: missing DEEPSEEK_API_KEY' };
+    return { statusCode: 500, body: 'Missing DEEPSEEK_API_KEY' };
   }
 
   try {
     const requestBody = JSON.parse(event.body);
-    // Force stream: true for all requests to keep connection alive
-    requestBody.stream = true;
+    const wantsStream = requestBody.stream === true;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 29000); // 29s safety
+    const timeout = setTimeout(() => controller.abort(), 29000);
 
     const upstreamRes = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
@@ -37,23 +35,30 @@ exports.handler = async (event) => {
       };
     }
 
-    // Create a readable stream to pipe the upstream response
+    if (!wantsStream) {
+      // Non‑streaming: collect full response and return JSON
+      const data = await upstreamRes.json();
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      };
+    }
+
+    // Streaming: pipe the raw SSE stream
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
-    const encoder = new TextEncoder();
 
-    // Process the upstream stream and forward to client
     (async () => {
       try {
         const reader = upstreamRes.body.getReader();
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          // Forward raw SSE chunks
           await writer.write(value);
         }
       } catch (err) {
-        console.error('Streaming error:', err);
+        console.error('Stream error:', err);
       } finally {
         await writer.close();
       }
@@ -69,10 +74,9 @@ exports.handler = async (event) => {
     });
   } catch (error) {
     const isTimeout = error.name === 'AbortError';
-    console.error(isTimeout ? 'DeepSeek timeout' : 'DeepSeek proxy error:', error);
     return {
       statusCode: isTimeout ? 504 : 500,
-      body: JSON.stringify({ error: isTimeout ? 'DeepSeek API timed out' : error.message }),
+      body: JSON.stringify({ error: isTimeout ? 'Timeout' : error.message }),
     };
   }
 };
