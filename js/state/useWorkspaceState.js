@@ -44,6 +44,22 @@ window.useWorkspaceState = function useWorkspaceState() {
     wsStorage.setItem('TARGET_BRANCH',  targetBranch);
   }, [workspace, selfRepo, selfBranch, targetRepo, targetBranch, rememberKeys]);
 
+
+  const [manifest, setManifest] = useState(null);
+
+  const loadManifest = async () => {
+    if (!currentRepo || !githubToken) return;
+    try {
+      const { content } = await window.GitHubService.loadFileContent(
+        currentRepo, currentBranch, 'manifest.json', githubToken
+      );
+      setManifest(JSON.parse(content));
+    } catch (e) {
+      // manifest.json may not exist yet
+      setManifest(null);
+    }
+  };
+  
   return {
     rememberKeys, setRememberKeys,
     githubToken,  setGithubToken,
@@ -56,5 +72,6 @@ window.useWorkspaceState = function useWorkspaceState() {
     currentRepo,  setCurrentRepo,
     currentBranch,setCurrentBranch,
     systemPromptOverride, setSystemPromptOverride,
+    manifest, loadManifest,
   };
 };

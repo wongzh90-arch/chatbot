@@ -27,6 +27,7 @@ window.useCommandHandler = function useCommandHandler({
   // UI
   addToast,
   inputPrompt, setInputPrompt,
+  loadManifest,
 }) {
   const { useRef } = React;
   const selfImproveRunning = useRef(false);
@@ -493,6 +494,67 @@ window.useCommandHandler = function useCommandHandler({
         return true;
       }
 
+      case '/manifest-build': {
+        if (!currentRepo || !githubToken) {
+          addToast('Missing repo or token', 'error');
+          return true;
+        }
+        setMessages(prev => [...prev, { role: 'user', content: userText }]);
+        addToast('🔧 Building manifest...', 'info');
+
+        try {
+          // 1. Fetch full file tree
+          const files = await window.GitHubService.fetchFileTree(
+            currentRepo, currentBranch, githubToken
+          );
+          const jsFiles = files.filter(
+            f => f.path.startsWith('js/') && (f.path.endsWith('.js') || f.path.endsWith('.jsx'))
+          );
+
+          // 2. Load content of each
+          const fileContents = [];
+          for (const f of jsFiles) {
+            const data = await loadFile(f.path);  // returns { path, content, sha } or null
+            if (data) fileContents.push({ path: data.path, content: data.content });
+          }
+
+          // 3. Build manifest (pass provider & model for optional LLM descriptions)
+          const manifest = await window.ManifestParser.buildManifest(
+            fileContents,
+            provider,          // string 'deepseek' or 'openrouter'
+            selectedModel
+          );
+
+          const manifestJson = JSON.stringify(manifest, null, 2);
+
+          // 4. Get old manifest SHA (if exists)
+          let oldSha = null;
+          try {
+            const existing = await loadFile('manifest.json');
+            if (existing) oldSha = existing.sha;
+          } catch {}
+
+          // 5. Commit manifest.json
+          await commitChange('manifest.json', manifestJson, oldSha, 'chore: update manifest');
+
+          // 6. Reload manifest into state
+          if (loadManifest) await loadManifest();
+
+          addToast('✅ Manifest built and committed', 'success');
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `✅ **Manifest built** — ${Object.keys(manifest).length} modules indexed.`
+          }]);
+        } catch (e) {
+          addToast(`Manifest build failed: ${e.message}`, 'error');
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `❌ Manifest build failed: ${e.message}`
+          }]);
+        }
+        return true;
+      }
+        
       default:
         return false;
     }

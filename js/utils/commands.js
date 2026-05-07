@@ -25,4 +25,5 @@ window.COMMANDS = [
     { cmd: '/context',      desc: 'Show the current conversation context for this repo/branch' },
     { cmd: '/self-improve', desc: 'Create a branch, plan changes, execute, and open a PR' },
     { cmd: '/rollback',     desc: 'Reset the current branch to match main (undo unmerged changes)' },
+    { cmd: '/manifest-build', desc: 'Build or refresh module manifest (commits manifest.json)' },
 ];
