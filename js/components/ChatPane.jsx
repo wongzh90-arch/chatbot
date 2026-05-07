@@ -2,16 +2,25 @@
 // Updated: added theme prop and conditional styling
 
 window.ChatPane = ({
-  theme,          // NEW
+  theme,
   messages, inputPrompt, setInputPrompt,
   uploadedContext, setUploadedContext,
   isLoading, onSend, onFileUpload,
   showCmdHints, onCmdHintClick,
   chatScrollRef, inputRef,
   streamingMessage,
-  conversationId,    // already in props
+  conversationId,
 }) => {
-  // … keep the same state and effect code …
+  // ── Missing definitions added ──────────────────────────────
+  const textareaRef = React.useRef(null);
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      onSend();
+    }
+  };
+  // ────────────────────────────────────────────────────────────
 
   // Theme-aware classes
   const chatBg = theme === 'dark' ? 'bg-zinc-950 border-zinc-900' : 'bg-white border-gray-200';
@@ -44,31 +53,58 @@ window.ChatPane = ({
         className: `${theme === 'dark' ? 'text-zinc-700' : 'text-gray-400'} text-xs ml-auto`
       }, `${messages.filter(m => m.role === 'user').length} msg${messages.filter(m => m.role === 'user').length !== 1 ? 's' : ''}`)
     ),
-
-    // Messages area – keep as is, but modify the MessageBubble to use msgBgUser/Agent
+    // Messages area
     React.createElement('div', {
       ref: chatScrollRef,
       className: 'flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 custom-scrollbar'
     },
-      allMessages.map((m, i) => React.createElement(MessageBubble, { key: i, message: m, theme })), // pass theme
-      // Typing indicator unchanged
+      allMessages.map((m, i) => React.createElement(MessageBubble, { key: i, message: m, theme })),
     ),
-
-    // Input area (header and textarea updated)
-    React.createElement('div', { className: `border-t ${inputBg} bg-zinc-950/95 backdrop-blur flex-shrink-0` }, // backdrop may need theme
-      // … command hints (unchanged) …
-      // Intent suggestion (unchanged) …
-      // File attachment preview (unchanged) …
-
+    // Input area
+    React.createElement('div', { className: `border-t ${inputBg} bg-zinc-950/95 backdrop-blur flex-shrink-0` },
+      // Command hints
+      showCmdHints && React.createElement('div', { className: 'px-3 pt-1 flex gap-1 flex-wrap' },
+        window.COMMANDS.slice(0, 8).map(cmd =>
+          React.createElement('button', {
+            key: cmd.cmd,
+            onClick: () => onCmdHintClick(cmd.cmd),
+            className: 'text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition'
+          }, cmd.cmd)
+        )
+      ),
+      // Intent suggestion
+      React.createElement('div', { className: 'px-3 pt-1' },
+        (() => {
+          const intent = window.IntentDetector ? window.IntentDetector.detect(inputPrompt) : null;
+          if (intent && intent.confidence >= 0.8) {
+            return React.createElement('div', { className: `text-[10px] ${theme === 'dark' ? 'text-amber-300' : 'text-amber-600'}` },
+              `🔮 Intent: ${intent.cmd} ${intent.args || ''}`
+            );
+          }
+          return null;
+        })()
+      ),
+      // File attachment preview
+      uploadedContext && React.createElement('div', { className: 'px-3 py-1' },
+        React.createElement('div', { className: `flex items-center gap-2 text-xs ${theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : 'bg-gray-100 border-gray-200'} px-3 py-2 rounded-lg border` },
+          React.createElement('span', { className: 'text-zinc-400' }, '📎'),
+          React.createElement('span', { className: 'truncate' }, uploadedContext.name || 'Attached file'),
+          React.createElement('button', {
+            onClick: () => setUploadedContext(null),
+            className: 'ml-auto text-zinc-500 hover:text-red-400 text-lg leading-none'
+          }, '×')
+        )
+      ),
       // Textarea row
       React.createElement('div', { className: 'p-3 flex gap-2 items-end' },
-        // File upload button
         React.createElement('label', {
-          className: `cursor-pointer p-2 hover:bg-zinc-800 rounded-xl text-zinc-500 hover:text-amber-400 transition shrink-0 mb-0.5`
+          className: 'cursor-pointer p-2 hover:bg-zinc-800 rounded-xl text-zinc-500 hover:text-amber-400 transition shrink-0 mb-0.5'
         },
-          // SVG unchanged
+          React.createElement('input', { type: 'file', className: 'hidden', onChange: onFileUpload }),
+          React.createElement('svg', { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2" },
+            React.createElement('path', { d: "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.19 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" })
+          )
         ),
-
         React.createElement('textarea', {
           ref: el => { textareaRef.current = el; if (inputRef) inputRef.current = el; },
           placeholder: 'Type / for commands, describe intent, or ask AI... (Shift+Enter for newline)',
@@ -78,8 +114,6 @@ window.ChatPane = ({
           onKeyDown: handleKeyDown,
           className: `flex-1 ${textareaBg} ${textareaText} rounded-xl outline-none px-4 py-2.5 text-sm font-mono resize-none leading-6 transition custom-scrollbar overflow-hidden min-h-[2.75rem]`
         }),
-
-        // Send button
         React.createElement('button', {
           onClick: () => onSend(),
           disabled: isLoading || !inputPrompt.trim(),
@@ -90,20 +124,20 @@ window.ChatPane = ({
   );
 };
 
-// MessageBubble – needs theme as well; I’ll keep it inline but adapt:
+// MessageBubble component (unchanged, used above)
 function MessageBubble({ message: m, theme }) {
   const isUser = m.role === 'user';
   const msgBgUser = theme === 'dark' ? 'bg-amber-600/12 border-amber-500/20 text-zinc-200' : 'bg-amber-50 border-amber-200 text-gray-800';
   const msgBgAgent = theme === 'dark' ? 'bg-zinc-900 border-zinc-800 text-zinc-300' : 'bg-gray-100 border-gray-200 text-gray-800';
 
   return React.createElement('div', { className: `flex flex-col gap-1 ${isUser ? 'items-end' : 'items-start'}` },
-    // Role label row unchanged …
+    React.createElement('div', { className: `${isUser ? 'text-right' : 'text-left'} text-[10px] uppercase tracking-widest ${isUser ? 'text-amber-500' : 'text-zinc-500'} px-1` },
+      isUser ? 'You' : 'Agent'
+    ),
     React.createElement('div', {
-      className: `max-w-[92%] sm:max-w-[88%] rounded-2xl px-4 py-3 text-[13px] sm:text-sm leading-relaxed shadow-sm ${
-        isUser ? `${msgBgUser} rounded-tr-sm` : `${msgBgAgent} rounded-tl-sm`
-      }`
+      className: `max-w-[92%] sm:max-w-[88%] rounded-2xl px-4 py-3 text-[13px] sm:text-sm leading-relaxed shadow-sm ${isUser ? `${msgBgUser} rounded-tr-sm` : `${msgBgAgent} rounded-tl-sm`}`
     },
-      // Content unchanged …
+      m.content ? window.safeMarkdownToReact(m.content) : ''
     )
   );
 }
