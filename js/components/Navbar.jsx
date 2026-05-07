@@ -33,8 +33,6 @@ window.Navbar = ({
 
   const tabs = [
     { id: 'chat', label: '💬', title: 'Chat' },
-    { id: 'editor', label: '📝', title: 'Editor' },
-    { id: 'tree', label: '📁', title: 'Files' },
     { id: 'tasks', label: '📋', title: 'Tasks' },
   ];
 
