@@ -1,4 +1,5 @@
 // js/agents/planner.js
+
 window.PlannerAgent = (() => {
 
   async function analyzeAndPlan({
@@ -17,11 +18,12 @@ window.PlannerAgent = (() => {
     systemPromptOverride,
     manifest,
   }) {
-
     addToast('🔍 Analyzing repository...', 'info');
 
     const relevantExtensions = ['.js', '.jsx', '.ts', '.tsx', '.html', '.css', '.json'];
     const excludedDirs = ['node_modules', '.git', 'dist', 'build', '.next'];
+
+    // ── Reduced file list (20 files max) ─────────────────
     const filteredFiles = fileTree
       .filter(f => {
         const isExcluded = excludedDirs.some(d => f.path.startsWith(d));
@@ -29,15 +31,17 @@ window.PlannerAgent = (() => {
         return !isExcluded && isRelevant;
       })
       .map(f => f.path)
-      .slice(0, 40);
+      .slice(0, 20);                                    // <-- was 40
 
     let sysPrompt;
 
     if (manifest) {
+      // ── Capped manifest list (30 modules max) ────────
       const moduleList = Object.entries(manifest)
         .map(([path, entry]) =>
           `- ${path} (${entry.lineCount} lines)\n  desc: ${entry.description || 'no description'}\n  exports: [${(entry.exports || []).join(', ')}]\n  imports: [${(entry.imports || []).join(', ')}]\n  importedBy: [${(entry.importedBy || []).join(', ')}]`
         )
+        .slice(0, 30)                                   // <-- NEW: cap at 30
         .join('\n');
 
       sysPrompt = `You are a senior software architect. Be concise.
@@ -47,6 +51,7 @@ Repo: ${repo} (branch: ${branch})
 Goal: "${goal}"
 
 Project structure (from manifest):
+
 ${moduleList}
 
 Return ONLY this JSON (no markdown, no extra text):
@@ -77,6 +82,7 @@ Repo: ${repo} (branch: ${branch})
 Goal: "${goal}"
 
 Key files:
+
 ${filteredFiles.join('\n')}
 
 Return ONLY this JSON (no markdown, no extra text):
@@ -128,8 +134,8 @@ Rules:
       reasoningEffort,
     });
 
-    let jsonStr = reply.content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    const jsonMatch = jsonStr.match(/(\{[\s\S]*\})/);
+    let jsonStr = reply.content.replace(/```json\\s*/g, '').replace(/```\\s*/g, '').trim();
+    const jsonMatch = jsonStr.match(/(\\{[\\s\\S]*\\})/);
     if (jsonMatch) jsonStr = jsonMatch[1];
 
     let plan;
@@ -142,18 +148,22 @@ Rules:
 
     plan.tasks = plan.tasks.slice(0, 4);
 
-    // ---- Phase 1C: Use in-memory queue instead of GitHub Issues ----
+    // ── Phase 1C: Use in-memory queue instead of GitHub Issues ─────────
     window.TaskQueue.createMilestone(
       plan.milestone_title || `Goal: ${goal.substring(0, 50)}`,
       plan.analysis || ''
     );
 
     const taskMap = []; // index -> task id for dependency resolution
+
     for (let i = 0; i < plan.tasks.length; i++) {
       const t = plan.tasks[i];
-      const depIds = t.depends_on_task_index != null
-        ? taskMap[t.depends_on_task_index] ? [taskMap[t.depends_on_task_index]] : []
-        : [];
+      const depIds =
+        t.depends_on_task_index != null
+          ? taskMap[t.depends_on_task_index]
+            ? [taskMap[t.depends_on_task_index]]
+            : []
+          : [];
       const newTask = window.TaskQueue.addTask(
         t.title,
         t.description,
@@ -164,6 +174,7 @@ Rules:
     }
 
     const createdTasks = window.TaskQueue.getAllTasks();
+
     addToast(`Plan created: ${createdTasks.length} tasks`, 'success');
 
     // 🔥 Phase 0C: record plan creation in conversation memory
@@ -176,8 +187,6 @@ Rules:
       analysis: plan.analysis,
       tasks: createdTasks,
     };
-
-    // No GitHub API calls for task creation – all local
   }
 
   return { analyzeAndPlan };
