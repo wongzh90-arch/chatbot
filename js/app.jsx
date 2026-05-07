@@ -93,6 +93,7 @@ function AppContent() {
     addToast,
     inputPrompt, setInputPrompt,
     manifest: workspace.manifest,
+    setStatusMessage: conversation.setStatusMessage,
   });
   // ── onFileClick ───────────────────────────────────────────────
   const handleFileClick = async (path) => {
