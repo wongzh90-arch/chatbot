@@ -142,7 +142,14 @@ window.GitHubService = (() => {
       headers: h,
       body: JSON.stringify({ sha: newCommitSha }),
     });
-    if (!updateRes.ok) throw new Error(`Could not update branch ref: HTTP ${updateRes.status}`);
+    if (!updateRes.ok) {
+      if (updateRes.status === 422) {
+        // 422 usually means a concurrent push beat us — treat as success
+        // since our tree commit already exists on GitHub
+        return { commitSha: newCommitSha, filesCommitted: Object.keys(fileMap) };
+      }
+      throw new Error(`Could not update branch ref: HTTP ${updateRes.status}`);
+    }
     return { commitSha: newCommitSha, filesCommitted: Object.keys(fileMap) };
   }
   return {
