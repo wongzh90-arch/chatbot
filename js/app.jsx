@@ -1,23 +1,19 @@
+================================================
 // js/app.jsx --- composition root, no business logic.
 // Added: ThemeProvider wrapper, theme-aware root, sidebar, and prop passing.
-
 const { useState, useEffect } = React;
-
 function App() {
   // Wrap everything in ThemeProvider so useTheme() is available inside AppContent
   return React.createElement(window.ThemeProvider, null,
     React.createElement(AppContent)
   );
 }
-
 function AppContent() {
   const { theme, toggleTheme } = window.useTheme();
-
   // ── Core state hooks ──────────────────────────────────────────
   const provider = window.useProviderState();
   const workspace = window.useWorkspaceState();
   const conversation = window.useConversationState();
-
   // ── Toasts ────────────────────────────────────────────────────
   const [toasts, setToasts] = useState([]);
   const addToast = (message, type = 'info') => {
@@ -25,7 +21,6 @@ function AppContent() {
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000);
   };
-
   // ── Project memory ────────────────────────────────────────────
   const [projectMemory, setProjectMemory] = useState([]);
   useEffect(() => {
@@ -42,7 +37,6 @@ function AppContent() {
     setProjectMemory([]);
     localStorage.setItem(`MEM_${workspace.currentRepo}`, JSON.stringify([]));
   };
-
   // ── User memory ───────────────────────────────────────────────
   const [userMemory, setUserMemory] = useState(() => {
     const saved = localStorage.getItem('USER_MEMORY');
@@ -51,7 +45,12 @@ function AppContent() {
   useEffect(() => {
     localStorage.setItem('USER_MEMORY', JSON.stringify(userMemory));
   }, [userMemory]);
-
+  // ── Load manifest whenever repo/branch changes ────────────────
+  useEffect(() => {
+    if (workspace.currentRepo && workspace.currentBranch && workspace.githubToken) {
+      workspace.loadManifest();
+    }
+  }, [workspace.currentRepo, workspace.currentBranch, workspace.githubToken]);
   // ── GitHub actions ────────────────────────────────────────────
   const github = window.useGitHubActions({
     currentRepo: workspace.currentRepo,
@@ -62,15 +61,12 @@ function AppContent() {
     workspace: workspace.workspace,
     addToast,
   });
-
   // ── Orchestrator tasks ────────────────────────────────────────
   const [orchestratorTasks, setOrchestratorTasks] = useState([]);
-
   // ── Input / hints ─────────────────────────────────────────────
   const [inputPrompt, setInputPrompt] = useState('');
   const [showCmdHints, setShowCmdHints] = useState(false);
   useEffect(() => { setShowCmdHints(inputPrompt.startsWith('/')); }, [inputPrompt]);
-
   // ── Command handler ───────────────────────────────────────────
   const commands = window.useCommandHandler({
     provider: provider.provider,
@@ -102,22 +98,20 @@ function AppContent() {
     addToast,
     inputPrompt, setInputPrompt,
     manifest: workspace.manifest,
+    loadManifest: workspace.loadManifest,
+    fileTree: github.fileTree,
   });
-
   // ── onFileClick ───────────────────────────────────────────────
   const handleFileClick = async (path) => {
     const fileData = await github.loadFile(path);
     if (fileData) commands.pushFileCard(fileData);
   };
-
   // ── onCommitFile ──────────────────────────────────────────────
   const handleCommitFile = async (path, content, sha, message) => {
     return await github.commitChange(path, content, sha, message);
   };
-
   // ── Theme-aware class sets ────────────────────────────────────
   const rootBg = theme === 'dark' ? 'bg-zinc-950 text-zinc-200' : 'bg-white text-zinc-900';
-
   // Sidebar (conversation list)
   const sidebarBg = theme === 'dark' ? 'bg-zinc-950 border-zinc-800' : 'bg-gray-50 border-gray-200';
   const sidebarText = theme === 'dark' ? 'text-zinc-200' : 'text-gray-800';
@@ -125,7 +119,6 @@ function AppContent() {
   const sidebarHover = theme === 'dark' ? 'hover:bg-zinc-900 hover:text-zinc-300' : 'hover:bg-gray-100 hover:text-gray-800';
   const sidebarActive = theme === 'dark' ? 'bg-zinc-800 text-zinc-200' : 'bg-blue-50 text-blue-700';
   const sidebarBorder = theme === 'dark' ? 'border-zinc-900/50' : 'border-gray-200';
-
   return React.createElement('div', {
     className: `flex flex-col h-screen ${rootBg} overflow-hidden`
   },
@@ -143,7 +136,6 @@ function AppContent() {
         }`
       }, t.message))
     ),
-
     // Navbar (pass theme + toggle)
     React.createElement(window.Navbar, {
       theme, toggleTheme,
@@ -174,11 +166,9 @@ function AppContent() {
       reasoningEffort: provider.reasoningEffort,
       setReasoningEffort: provider.setReasoningEffort,
     }),
-
     // Body
     React.createElement(window.ErrorBoundary, null,
       React.createElement('div', { className: 'flex flex-1 overflow-hidden' },
-
         // Conversation list sidebar (theme‑aware)
         React.createElement('div', {
           className: `w-36 ${sidebarBg} border-r flex flex-col shrink-0`
@@ -214,7 +204,6 @@ function AppContent() {
             )
           )
         ),
-
         // Left pane (theme prop passed)
         React.createElement(window.LeftPane, {
           theme,
@@ -227,7 +216,6 @@ function AppContent() {
           isLoading: github.isLoading,
           onFetchFileTree: github.fetchFileTree,
         }),
-
         // Chat pane (theme prop passed)
         React.createElement(window.ChatPane, {
           theme,
@@ -258,6 +246,5 @@ function AppContent() {
     )
   );
 }
-
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(React.createElement(App));
