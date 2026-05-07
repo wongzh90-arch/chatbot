@@ -1,71 +1,90 @@
+// js/agents/reviewer.js
 window.ReviewerAgent = (() => {
-    async function reviewCompletedTasks({
-        tasks,
-        repo, branch, githubToken,
-        provider, model, thinkingMode, reasoningEffort,
-        fileTree,
-        addToast,
-        projectMemory,
-        userMemory,
-        systemPromptOverride
-    }) {
-        // Only review tasks that are DONE and haven't been reviewed in this cycle.
-        // We use a simple heuristic: if the task already has a "Review passed" comment
-        // from us, skip it. (This prevents the loop from re-reviewing forever.)
-        const doneTasks = tasks.filter(t =>
-            t.labels.some(l => l.name === window.TaskManager.LABELS.DONE.name)
-        );
 
-        if (doneTasks.length === 0) {
-            addToast('No completed tasks to review.', 'info');
-            return { issuesFound: 0, reviewed: 0 };
+  async function reviewCompletedTasks({
+    tasks,
+    repo, branch, githubToken,
+    provider, model, thinkingMode, reasoningEffort,
+    fileTree,
+    addToast,
+    projectMemory,
+    userMemory,
+    manifest,                    // Phase 1B
+    systemPromptOverride
+  }) {
+
+    const doneTasks = tasks.filter(t =>
+      t.labels.some(l => l.name === window.TaskManager.LABELS.DONE.name)
+    );
+
+    if (doneTasks.length === 0) {
+      addToast('No completed tasks to review.', 'info');
+      return { issuesFound: 0, reviewed: 0 };
+    }
+
+    addToast(`🔍 Reviewing ${doneTasks.length} completed task(s)...`, 'info');
+
+    let totalIssuesFound = 0;
+    let reviewedCount = 0;
+
+    for (const task of doneTasks) {
+      try {
+        // Move to REVIEW state
+        await window.TaskManager.updateTaskStatus(repo, task.number, 'REVIEW', githubToken);
+
+        const body = task.body || '';
+        const fileMatch = body.match(/\*\*Files:\*\*\s*(.*)/);
+        const targetFiles = fileMatch
+          ? fileMatch[1].split(',').map(f => f.trim()).filter(Boolean)
+          : [];
+
+        const fileContents = {};
+        for (const path of targetFiles.slice(0, 2)) {
+          try {
+            const { content } = await window.GitHubService.loadFileContent(repo, branch, path, githubToken);
+            fileContents[path] = content;
+          } catch (e) {
+            fileContents[path] = `[File not accessible: ${e.message}]`;
+          }
         }
 
-        addToast(`🔍 Reviewing ${doneTasks.length} completed task(s)...`, 'info');
-
-        let totalIssuesFound = 0;
-        let reviewedCount = 0;
-
-        for (const task of doneTasks) {
+        // Phase 1B: also load consumer files (files that import any target file)
+        let consumerContents = {};
+        if (manifest) {
+          const consumerFiles = new Set();
+          for (const tf of targetFiles) {
+            const entry = manifest[tf];
+            if (entry) {
+              (entry.importedBy || []).forEach(p => consumerFiles.add(p));
+            }
+          }
+          for (const cp of consumerFiles) {
+            if (targetFiles.includes(cp)) continue; // already loaded
             try {
-                // Move to REVIEW state
-                await window.TaskManager.updateTaskStatus(repo, task.number, 'REVIEW', githubToken);
+              const { content } = await window.GitHubService.loadFileContent(repo, branch, cp, githubToken);
+              consumerContents[cp] = content;
+            } catch (e) { /* ignore */ }
+          }
+        }
 
-                // Load files changed by this task
-                const body = task.body || '';
-                const fileMatch = body.match(/\*\*Files:\*\*\s*(.*)/);
-                const targetFiles = fileMatch
-                    ? fileMatch[1].split(',').map(f => f.trim()).filter(Boolean)
-                    : [];
+        // Build context using ContextBuilder
+        const targetFileContents = targetFiles.map(p => ({ path: p, content: fileContents[p] || '[unavailable]' }));
+        const relatedFileContents = Object.entries(consumerContents).map(([p, c]) => ({ path: p, content: c }));
 
-                const fileContents = {};
-                for (const path of targetFiles.slice(0, 2)) {
-                    try {
-                        const { content } = await window.GitHubService.loadFileContent(
-                            repo, branch, path, githubToken
-                        );
-                        const lines = content.split('\n');
-                        const truncated = lines.length > 200
-                            ? lines.slice(0, 200).join('\n') + '\n\n// ... (truncated)'
-                            : content;
-                        fileContents[path] = truncated;
-                    } catch (e) {
-                        fileContents[path] = `[File not accessible: ${e.message}]`;
-                    }
-                }
+        const contextBlock = window.ContextBuilder.buildContext({
+          targetContents: targetFileContents,
+          relatedContents: relatedFileContents,
+          manifest,
+          tokenBudget: 20000
+        }).contextString;
 
-                // Build review prompt
-                let sysPrompt = `You are a strict but pragmatic code reviewer. Review this completed task.
+        let sysPrompt = `You are a strict but pragmatic code reviewer. Review this completed task.
 
 Task: ${task.title}
 Task details: ${body}
-
 Repository: ${repo}
 
-Files changed (current content):
-${Object.entries(fileContents)
-    .map(([p, content]) => `--- ${p} ---\n${content}`)
-    .join('\n\n')}
+${contextBlock}
 
 Check for:
 1. Logic errors or obvious bugs
@@ -79,73 +98,74 @@ Respond with EXACTLY ONE of these:
 - "PASS" (alone, on first line) if the implementation is acceptable
 - "ISSUES:" followed by a bullet list of concrete problems that block merge`;
 
-                if (systemPromptOverride && systemPromptOverride.trim()) {
-                    sysPrompt = systemPromptOverride + '\n\n' + sysPrompt;
-                }
-
-                if (userMemory && userMemory.length) {
-                    const context = task.title + ' ' + (task.body || '');
-                    const relevantPrefs = window.ContextMatcher.selectRelevant(userMemory, context, 3);
-                    if (relevantPrefs.length) {
-                        sysPrompt += '\n\nRELEVANT USER PREFERENCES:\n' + relevantPrefs.map((p, i) => `${i+1}. ${p}`).join('\n');
-                    }
-                }
-
-                if (projectMemory && projectMemory.length) {
-                    sysPrompt += '\n\nPROJECT MEMORY:\n' + projectMemory.map((m, i) => `${i+1}. ${m}`).join('\n');
-                }
-
-                const userContent = `Review task #${task.number}: ${task.title}`;
-
-                const reply = await window.LLMProvider.chatCompletion({
-                    provider,
-                    model,
-                    messages: [{ role: 'user', content: 'Review.' }],
-                    systemPrompt: sysPrompt,
-                    userContent,
-                    thinkingMode,
-                    reasoningEffort,
-                });
-
-                reviewedCount += 1;
-                const ok = /^\s*PASS\b/i.test((reply.content || '').trim());
-
-                if (ok) {
-                    await window.TaskManager.addComment(
-                        repo, task.number,
-                        `✅ **Review passed.**`,
-                        githubToken
-                    ).catch(() => {});
-                    await window.TaskManager.updateTaskStatus(repo, task.number, 'DONE', githubToken);
-                } else {
-                    totalIssuesFound++;
-                    await window.TaskManager.addComment(
-                        repo, task.number,
-                        `⚠️ **Review found issues:**\n\n${reply.content}`,
-                        githubToken
-                    ).catch(() => {});
-                    // Send back to TODO for re-execution
-                    await window.TaskManager.updateTaskStatus(repo, task.number, 'TODO', githubToken);
-                    addToast(`🐛 Issues found in "${task.title}"`, 'warning');
-                }
-            } catch (err) {
-                console.error(`Review failed for task #${task.number}:`, err);
-                addToast(`Error reviewing task #${task.number}: ${err.message}`, 'error');
-                // Restore to DONE so it isn't lost — manual intervention can pick it up
-                try {
-                    await window.TaskManager.updateTaskStatus(repo, task.number, 'DONE', githubToken);
-                } catch {}
-            }
+        if (systemPromptOverride && systemPromptOverride.trim()) {
+          sysPrompt = systemPromptOverride + '\n\n' + sysPrompt;
         }
 
-        if (totalIssuesFound === 0) {
-            addToast('✅ All tasks passed review!', 'success');
+        if (userMemory && userMemory.length) {
+          const context = task.title + ' ' + (task.body || '');
+          const relevantPrefs = window.ContextMatcher.selectRelevant(userMemory, context, 3);
+          if (relevantPrefs.length) {
+            sysPrompt += '\n\nRELEVANT USER PREFERENCES:\n' + relevantPrefs.map((p, i) => `${i+1}. ${p}`).join('\n');
+          }
+        }
+
+        if (projectMemory && projectMemory.length) {
+          sysPrompt += '\n\nPROJECT MEMORY:\n' + projectMemory.map((m, i) => `${i+1}. ${m}`).join('\n');
+        }
+
+        const userContent = `Review task #${task.number}: ${task.title}`;
+        const reply = await window.LLMProvider.chatCompletion({
+          provider,
+          model,
+          messages: [{ role: 'user', content: 'Review.' }],
+          systemPrompt: sysPrompt,
+          userContent,
+          thinkingMode,
+          reasoningEffort,
+        });
+
+        reviewedCount += 1;
+
+        const ok = /^\s*PASS\b/i.test((reply.content || '').trim());
+
+        if (ok) {
+          await window.TaskManager.addComment(
+            repo, task.number,
+            `✅ **Review passed.**`,
+            githubToken
+          ).catch(() => {});
+          await window.TaskManager.updateTaskStatus(repo, task.number, 'DONE', githubToken);
         } else {
-            addToast(`⚠️ ${totalIssuesFound} task(s) have issues.`, 'warning');
+          totalIssuesFound++;
+          await window.TaskManager.addComment(
+            repo, task.number,
+            `⚠️ **Review found issues:**\n\n${reply.content}`,
+            githubToken
+          ).catch(() => {});
+          // Send back to TODO for re-execution
+          await window.TaskManager.updateTaskStatus(repo, task.number, 'TODO', githubToken);
+          addToast(`🐛 Issues found in "${task.title}"`, 'warning');
         }
 
-        return { issuesFound: totalIssuesFound, reviewed: reviewedCount };
+      } catch (err) {
+        console.error(`Review failed for task #${task.number}:`, err);
+        addToast(`Error reviewing task #${task.number}: ${err.message}`, 'error');
+        // Restore to DONE so it isn't lost
+        try {
+          await window.TaskManager.updateTaskStatus(repo, task.number, 'DONE', githubToken);
+        } catch {}
+      }
     }
 
-    return { reviewCompletedTasks };
+    if (totalIssuesFound === 0) {
+      addToast('✅ All tasks passed review!', 'success');
+    } else {
+      addToast(`⚠️ ${totalIssuesFound} task(s) have issues.`, 'warning');
+    }
+
+    return { issuesFound: totalIssuesFound, reviewed: reviewedCount };
+  }
+
+  return { reviewCompletedTasks };
 })();

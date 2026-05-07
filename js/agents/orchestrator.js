@@ -1,5 +1,7 @@
 // js/agents/orchestrator.js
+
 window.Orchestrator = (() => {
+
   const MAX_EXECUTE_ITERATIONS = 20;
   const MAX_REVIEW_CYCLES = 3;
   const TASK_RETRY_LIMIT = 2;
@@ -24,6 +26,7 @@ window.Orchestrator = (() => {
 
   function getState() { return { ...state }; }
   function setMode(m) { state.mode = m; }
+
   function resetState() {
     const prevMode = state.mode;
     state = initialState();
@@ -32,6 +35,7 @@ window.Orchestrator = (() => {
     pauseRequested = false;
     pauseReason = null;
   }
+
   function isTerminal() {
     return state.phase === 'done' || state.phase === 'error' || state.phase === 'idle';
   }
@@ -40,6 +44,7 @@ window.Orchestrator = (() => {
     pauseRequested = true;
     pauseReason = reason;
   }
+
   function checkPause() {
     if (!pauseRequested) return false;
     pauseRequested = false;
@@ -58,10 +63,12 @@ window.Orchestrator = (() => {
     provider, model, thinkingMode, reasoningEffort,
     fileTree, addToast, setMessages,
     projectMemory, userMemory, systemPromptOverride,
+    manifest,                              // Phase 1B
   }) {
     resetState();
     state.phase = 'planning';
     state.goal = goal;
+
     setMessages(prev => [...prev,
       { role: 'user', content: `/plan ${goal}` },
       { role: 'assistant', content: `🔍 Analysing **${repo}** and creating a task plan for: "${goal}"...` }
@@ -73,6 +80,7 @@ window.Orchestrator = (() => {
         provider, model, thinkingMode, reasoningEffort,
         fileTree, addToast,
         projectMemory, userMemory, systemPromptOverride,
+        manifest,                          // Phase 1B
       });
 
       if (result.error) {
@@ -90,6 +98,7 @@ window.Orchestrator = (() => {
       const planSummary = `📋 **Milestone:** ${result.milestone.title}\n\n${result.analysis || ''}\n\n**Tasks:**\n${
         result.tasks.map((t, i) => `${i + 1}. ${t.title} [#${t.issueNumber}](${t.html_url})`).join('\n')
       }`;
+
       setMessages(prev => [...prev, { role: 'assistant', content: planSummary }]);
 
       if (checkPause()) {
@@ -106,11 +115,13 @@ window.Orchestrator = (() => {
           projectMemory, userMemory, systemPromptOverride,
           addToast, setMessages,
           setActiveFileContent: null, setActiveFilePath: null, setActiveTab: null,
+          manifest,
         });
       }
 
       state.phase = 'awaiting_approval';
       return { needsApproval: true };
+
     } catch (err) {
       state.phase = 'error';
       addToast(`Plan phase crashed: ${err.message}`, 'error');
@@ -125,11 +136,13 @@ window.Orchestrator = (() => {
     projectMemory, userMemory, systemPromptOverride,
     addToast, setMessages,
     setActiveFileContent, setActiveFilePath, setActiveTab,
+    manifest,                              // Phase 1B
   }) {
     if (!state.milestone) {
       addToast('No active milestone. Run /plan first.', 'error');
       return { error: true, message: 'No milestone in state' };
     }
+
     if (state.phase === 'done') return { done: true };
 
     state.executeIterations += 1;
@@ -142,6 +155,7 @@ window.Orchestrator = (() => {
     }
 
     state.phase = 'executing';
+
     try {
       const allTasks = await window.TaskManager.getTasksByMilestone(repo, state.milestone.number, githubToken);
       state.tasks = allTasks;
@@ -155,7 +169,8 @@ window.Orchestrator = (() => {
         tasks: eligibleTasks,
         repo, branch, githubToken,
         provider, model, thinkingMode, reasoningEffort,
-        projectMemory, userMemory, systemPromptOverride,
+        projectMemory, userMemory, manifest,
+        systemPromptOverride,
         addToast,
         setActiveFileContent: setActiveFileContent || (() => {}),
         setActiveFilePath: setActiveFilePath || (() => {}),
@@ -173,12 +188,14 @@ window.Orchestrator = (() => {
           setMessages(prev => [...prev, { role: 'assistant', content: `⚠️ ${msg}` }]);
           return { error: true, partial: true, message: msg };
         }
+
         addToast('All eligible tasks done. Moving to review...', 'info');
         return await runReviewPhase({
           repo, branch, githubToken,
           provider, model, thinkingMode, reasoningEffort,
           fileTree: [], addToast, setMessages,
           projectMemory, userMemory, systemPromptOverride,
+          manifest,
         });
       }
 
@@ -212,10 +229,12 @@ window.Orchestrator = (() => {
           projectMemory, userMemory, systemPromptOverride,
           addToast, setMessages,
           setActiveFileContent: null, setActiveFilePath: null, setActiveTab: null,
+          manifest,
         });
       }
 
       return { needsApproval: true, lastTask: result };
+
     } catch (err) {
       state.phase = 'error';
       addToast(`Execution phase crashed: ${err.message}`, 'error');
@@ -229,11 +248,13 @@ window.Orchestrator = (() => {
     provider, model, thinkingMode, reasoningEffort,
     fileTree, addToast, setMessages,
     projectMemory, userMemory, systemPromptOverride,
+    manifest,                              // Phase 1B
   }) {
     if (!state.milestone) {
       addToast('No active milestone to review.', 'warning');
       return { error: true, message: 'No milestone in state' };
     }
+
     if (state.phase === 'done') return { done: true };
 
     if (checkPause()) {
@@ -252,6 +273,7 @@ window.Orchestrator = (() => {
     }
 
     state.phase = 'reviewing';
+
     try {
       const allTasks = await window.TaskManager.getTasksByMilestone(repo, state.milestone.number, githubToken);
       const doneCount = allTasks.filter(t => t.labels.some(l => l.name === 'task:done')).length;
@@ -274,7 +296,8 @@ window.Orchestrator = (() => {
         repo, branch, githubToken,
         provider, model, thinkingMode, reasoningEffort,
         fileTree, addToast,
-        projectMemory, userMemory, systemPromptOverride,
+        projectMemory, userMemory, manifest,
+        systemPromptOverride,
       });
 
       if (result.issuesFound === 0) {
@@ -323,10 +346,12 @@ window.Orchestrator = (() => {
           projectMemory, userMemory, systemPromptOverride,
           addToast, setMessages,
           setActiveFileContent: null, setActiveFilePath: null, setActiveTab: null,
+          manifest,
         });
       }
 
       return { needsApproval: true, issuesFound: result.issuesFound };
+
     } catch (err) {
       state.phase = 'error';
       addToast(`Review phase crashed: ${err.message}`, 'error');

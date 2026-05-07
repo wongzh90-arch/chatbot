@@ -1,3 +1,5 @@
+// js/components/ChatPane.jsx
+
 window.ChatPane = ({
   messages, inputPrompt, setInputPrompt,
   uploadedContext, setUploadedContext,
@@ -5,19 +7,22 @@ window.ChatPane = ({
   showCmdHints, onCmdHintClick,
   chatScrollRef, inputRef,
   streamingMessage,
-  conversationId,           // new prop
+  conversationId, // new prop
 }) => {
   const { useState, useRef, useEffect } = React;
   const [intentSuggestion, setIntentSuggestion] = useState(null);
   const textareaRef = useRef(null);
 
   useEffect(() => {
-    if (!inputPrompt || inputPrompt.startsWith('/')) { setIntentSuggestion(null); return; }
+    if (!inputPrompt || inputPrompt.startsWith('/')) {
+      setIntentSuggestion(null); return;
+    }
     const suggestion = window.IntentDetector && window.IntentDetector.suggest(inputPrompt);
     setIntentSuggestion(suggestion || null);
   }, [inputPrompt]);
 
-  useEffect(() => {
+  // ── Auto‑resize textarea (fixed: use useLayoutEffect to avoid paint glitch)
+  React.useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
@@ -49,7 +54,7 @@ window.ChatPane = ({
         className: `w-2 h-2 rounded-full shrink-0 ${isLoading ? 'bg-amber-400 animate-pulse' : 'bg-green-500'}`
       }),
       React.createElement('span', { className: 'font-mono font-bold text-xs uppercase text-zinc-500 tracking-widest' },
-        isLoading ? 'Processing…' : 'Terminal'
+        isLoading ? 'Processing...' : 'Terminal'
       ),
       React.createElement('span', { className: 'text-zinc-700 text-xs ml-auto' },
         `${messages.filter(m => m.role === 'user').length} msg${messages.filter(m => m.role === 'user').length !== 1 ? 's' : ''}`
@@ -76,7 +81,7 @@ window.ChatPane = ({
       )
     ),
 
-    // Input area (unchanged)
+    // Input area
     React.createElement('div', { className: 'border-t border-zinc-900 bg-zinc-950/95 backdrop-blur flex-shrink-0' },
 
       // Command hints
@@ -103,7 +108,7 @@ window.ChatPane = ({
           'Run ',
           React.createElement('code', { className: 'text-amber-400 font-mono' },
             intentSuggestion.args
-              ? `${intentSuggestion.cmd} ${intentSuggestion.args.substring(0, 35)}${intentSuggestion.args.length > 35 ? '…' : ''}`
+              ? `${intentSuggestion.cmd} ${intentSuggestion.args.substring(0, 35)}${intentSuggestion.args.length > 35 ? '...' : ''}`
               : intentSuggestion.cmd
           ),
           '?'
@@ -146,12 +151,12 @@ window.ChatPane = ({
         // Textarea
         React.createElement('textarea', {
           ref: el => { textareaRef.current = el; if (inputRef) inputRef.current = el; },
-          placeholder: 'Type / for commands, describe intent, or ask AI… (Shift+Enter for newline)',
+          placeholder: 'Type / for commands, describe intent, or ask AI... (Shift+Enter for newline)',
           value: inputPrompt,
           rows: 1,
           onChange: e => setInputPrompt(e.target.value),
           onKeyDown: handleKeyDown,
-          className: 'flex-1 bg-zinc-900 border border-zinc-800 focus:border-amber-500/50 rounded-xl outline-none px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 font-mono resize-none leading-6 transition custom-scrollbar overflow-hidden'
+          className: 'flex-1 bg-zinc-900 border border-zinc-800 focus:border-amber-500/50 rounded-xl outline-none px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 font-mono resize-none leading-6 transition custom-scrollbar overflow-hidden min-h-[2.75rem]'
         }),
 
         // Send button
@@ -159,13 +164,14 @@ window.ChatPane = ({
           onClick: () => onSend(),
           disabled: isLoading || !inputPrompt.trim(),
           className: 'px-4 py-2.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-950 font-bold rounded-xl transition shrink-0 text-sm mb-0.5'
-        }, isLoading ? '…' : '↑')
+        }, isLoading ? '...' : '↑')
       )
     ),
   );
 };
 
 // ─── Message Bubble ───────────────────────────────────────────
+
 function MessageBubble({ message: m }) {
   const isUser = m.role === 'user';
   const isSearchResult = !isUser && m.searchResults && m.searchResults.length > 0;
@@ -204,6 +210,7 @@ function MessageBubble({ message: m }) {
 }
 
 // ─── Compact Search Results ──────────────────────────────────
+
 function SearchResultsBlock({ results, query, synthesis }) {
   return React.createElement('div', { className: 'space-y-2' },
 
