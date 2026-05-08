@@ -164,6 +164,91 @@ Rules:
         reason: 'No file path determinable',
       };
     }
+
+    // ── Phase 2A: Lint & syntax check before commit ───────────────
+    if (window.ExecutorAPI) {
+      const filesToCheck = {};
+      for (const [path, { content }] of Object.entries(fileMap)) {
+        filesToCheck[path] = content;
+      }
+      const [syntaxResult, lintResult] = await Promise.all([
+        window.ExecutorAPI.syntax(filesToCheck),
+        window.ExecutorAPI.lint(filesToCheck)
+      ]);
+
+      const allErrors = [
+        ...(syntaxResult.errors || []),
+        ...(lintResult.errors || [])
+      ].filter(e => e.severity !== 'warning');
+
+      const unreachable = syntaxResult._unreachable || lintResult._unreachable;
+
+      if (allErrors.length > 0 && !unreachable) {
+        addToast(`❌ Lint/syntax errors found – asking LLM to fix`, 'warning');
+        const errorDetails = allErrors.map(e =>
+          `${e.file}:${e.line || 1} - ${e.message}`
+        ).join('\n');
+
+        const fixPrompt = `Your previous implementation had these errors:\n${errorDetails}\n\nPlease provide corrected FULL file content for each affected file using <skill name="update_editor" file="..."> blocks.`;
+
+        let retryReply;
+        try {
+          retryReply = await window.LLMProvider.chatCompletion({
+            provider, model,
+            messages: [{ role: 'user', content: fixPrompt }],
+            systemPrompt: sysPrompt,
+            userContent: fixPrompt,
+            thinkingMode: false,
+          });
+        } catch (err) {
+          window.TaskQueue.updateTaskStatus(todoTask.id, window.TaskQueue.STATUS.FAILED, `LLM retry failed: ${err.message}`);
+          return {
+            failed: true,
+            taskId: todoTask.id,
+            title: todoTask.title,
+            reason: `LLM retry failed: ${err.message}`,
+          };
+        }
+
+        const { actions: retryActions } = window.processAgentSkills(retryReply.content || '');
+        if (retryActions.updateEditorBlocks.length > 0) {
+          // Overwrite fileMap with fixed content
+          for (const block of retryActions.updateEditorBlocks) {
+            if (block.file && fileMap[block.file]) {
+              fileMap[block.file].content = block.content;
+            }
+          }
+          // Re-run validation one more time (optional but safe)
+          addToast(`✅ LLM attempted fix – re‑validating...`, 'info');
+          const recheckSyntax = await window.ExecutorAPI.syntax(filesToCheck);
+          const recheckLint = await window.ExecutorAPI.lint(filesToCheck);
+          const stillErrors = [...(recheckSyntax.errors || []), ...(recheckLint.errors || [])]
+            .filter(e => e.severity !== 'warning');
+          if (stillErrors.length > 0) {
+            window.TaskQueue.updateTaskStatus(todoTask.id, window.TaskQueue.STATUS.FAILED,
+              `Lint errors remain: ${stillErrors.map(e => e.message).join(', ')}`);
+            return {
+              failed: true,
+              taskId: todoTask.id,
+              title: todoTask.title,
+              reason: `Unfixed lint errors: ${stillErrors[0].message}`,
+            };
+          }
+        } else {
+          window.TaskQueue.updateTaskStatus(todoTask.id, window.TaskQueue.STATUS.FAILED,
+            'LLM did not produce fixed code');
+          return {
+            failed: true,
+            taskId: todoTask.id,
+            title: todoTask.title,
+            reason: 'No fixed skill blocks after lint errors',
+          };
+        }
+      } else if (allErrors.length > 0 && unreachable) {
+        addToast(`⚠️ Executor API unreachable – skipping lint/syntax check`, 'warning');
+      }
+    }
+
     // ── Atomic commit — all files in one Git Trees commit ───────
     let commitResult;
     try {
