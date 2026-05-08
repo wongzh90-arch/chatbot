@@ -165,12 +165,18 @@ Rules:
       };
     }
 
-    // ── Phase 2A: Lint & syntax check before commit ───────────────
-    if (window.ExecutorAPI) {
-      const filesToCheck = {};
-      for (const [path, { content }] of Object.entries(fileMap)) {
+    // ── Phase 2A: Lint & syntax check before commit (only for JS/JSX/TS files) ──
+    const jsExtensions = ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'];
+    const filesToCheck = {};
+    for (const [path, { content }] of Object.entries(fileMap)) {
+      const ext = path.substring(path.lastIndexOf('.'));
+      if (jsExtensions.includes(ext)) {
         filesToCheck[path] = content;
       }
+    }
+    if (Object.keys(filesToCheck).length === 0) {
+      addToast(`ℹ️ No JS files changed – skipping lint/syntax check`, 'info');
+    } else if (window.ExecutorAPI) {
       const [syntaxResult, lintResult] = await Promise.all([
         window.ExecutorAPI.syntax(filesToCheck),
         window.ExecutorAPI.lint(filesToCheck)
@@ -218,7 +224,7 @@ Rules:
               fileMap[block.file].content = block.content;
             }
           }
-          // Re-run validation one more time (optional but safe)
+          // Re-run validation one more time
           addToast(`✅ LLM attempted fix – re‑validating...`, 'info');
           const recheckSyntax = await window.ExecutorAPI.syntax(filesToCheck);
           const recheckLint = await window.ExecutorAPI.lint(filesToCheck);
