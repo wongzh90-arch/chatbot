@@ -65,16 +65,14 @@ function AppContent() {
 
   // When run starts, switch to tasks; when done, back to chat
   useEffect(() => {
-    if (conversation.isRunActive) {
-      const t = setTimeout(() => { setActiveTab('tasks'); setMobileTab('tasks'); }, 1200);
-      return () => clearTimeout(t);
-    } else {
+    // Stay in current tab – do NOT auto‑switch to tasks
+    if (!conversation.isRunActive) {
       setActiveTab('chat');
       setMobileTab('chat');
       setTimeout(() => conversation.scrollToBottom(), 50);
     }
   }, [conversation.isRunActive]);
-
+  
   // ── GitHub actions ────────────────────────────────────────────
   const github = window.useGitHubActions({
     currentRepo:    workspace.currentRepo,
