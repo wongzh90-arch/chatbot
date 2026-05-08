@@ -190,6 +190,12 @@ window.useCommandHandler = function useCommandHandler({
         ]);
         return true;
       }
+        case '/set-site':
+        if (!args) { addToast('Provide Netlify site name', 'error'); return true; }
+        localStorage.setItem('NETLIFY_SITE_NAME', args);
+        addToast(`Netlify site name set to "${args}"`, 'success');
+        setMessages(prev => [...prev, { role: 'assistant', content: `🌐 Netlify site name saved: ${args}` }]);
+        return true;
       case '/switch': {
         if (!args) { addToast('Specify branch', 'error'); return true; }
         await handleSwitchBranch(args);
