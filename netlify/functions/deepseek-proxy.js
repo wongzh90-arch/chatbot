@@ -1,4 +1,8 @@
-// netlify/functions/deepseek-proxy.js (already correct)
+// netlify/functions/deepseek-proxy.js
+// Always streams — avoids Netlify's 10s sync function timeout.
+// Non-streaming callers (chatCompletion) still work: llmProvider.js
+// collects the full stream client-side before resolving.
+
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
@@ -11,10 +15,10 @@ exports.handler = async (event) => {
 
   try {
     const requestBody = JSON.parse(event.body);
-    const wantsStream = requestBody.stream === true;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 29000);
+    // Force streaming regardless of what caller requested.
+    // llmProvider.js handles both cases via chatCompletionStream internally.
+    requestBody.stream = true;
 
     const upstreamRes = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
@@ -23,28 +27,19 @@ exports.handler = async (event) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(requestBody),
-      signal: controller.signal,
     });
-
-    clearTimeout(timeout);
 
     if (!upstreamRes.ok) {
       const errorText = await upstreamRes.text();
       return {
         statusCode: upstreamRes.status,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: errorText }),
       };
     }
 
-    if (!wantsStream) {
-      const data = await upstreamRes.json();
-      return {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      };
-    }
-
+    // Pipe the SSE stream directly to the client.
+    // First chunk arrives within ~1-2s, so Netlify's gateway never times out.
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
 
@@ -57,7 +52,7 @@ exports.handler = async (event) => {
           await writer.write(value);
         }
       } catch (err) {
-        console.error('Stream error:', err);
+        console.error('DeepSeek stream error:', err);
       } finally {
         await writer.close();
       }
@@ -69,13 +64,15 @@ exports.handler = async (event) => {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
       },
     });
+
   } catch (error) {
-    const isTimeout = error.name === 'AbortError';
+    console.error('DeepSeek proxy error:', error);
     return {
-      statusCode: isTimeout ? 504 : 500,
-      body: JSON.stringify({ error: isTimeout ? 'Timeout' : error.message }),
+      statusCode: 500,
+      body: JSON.stringify({ error: error.message }),
     };
   }
 };
