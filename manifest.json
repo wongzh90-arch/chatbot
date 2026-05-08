@@ -10,13 +10,14 @@
       "GitHubService",
       "ContextMatcher",
       "LLMProvider",
+      "ExecutorAPI",
       "ConversationMemory"
     ],
     "importedBy": [
       "js/agents/orchestrator.js"
     ],
-    "lineCount": 211,
-    "lastUpdated": "2026-05-08T01:08:56.423Z"
+    "lineCount": 302,
+    "lastUpdated": "2026-05-08T02:30:53.071Z"
   },
   "js/agents/orchestrator.js": {
     "description": "js/agents/orchestrator.js",
@@ -28,14 +29,16 @@
       "PlannerAgent",
       "ExecutorAgent",
       "ReviewerAgent",
+      "GitHubService",
+      "SmokeTest",
       "ConversationMemory"
     ],
     "importedBy": [
       "js/app.jsx",
       "js/handlers/useCommandHandler.js"
     ],
-    "lineCount": 360,
-    "lastUpdated": "2026-05-08T01:08:56.423Z"
+    "lineCount": 392,
+    "lastUpdated": "2026-05-08T02:30:53.071Z"
   },
   "js/agents/planner.js": {
     "description": "js/agents/planner.js",
@@ -52,7 +55,7 @@
       "js/agents/orchestrator.js"
     ],
     "lineCount": 195,
-    "lastUpdated": "2026-05-08T01:08:56.424Z"
+    "lastUpdated": "2026-05-08T02:30:53.071Z"
   },
   "js/agents/reviewer.js": {
     "description": "js/agents/reviewer.js",
@@ -70,7 +73,7 @@
       "js/agents/orchestrator.js"
     ],
     "lineCount": 154,
-    "lastUpdated": "2026-05-08T01:08:56.424Z"
+    "lastUpdated": "2026-05-08T02:30:53.071Z"
   },
   "js/app.jsx": {
     "description": "js/app.jsx --- composition root, no business logic.",
@@ -80,8 +83,8 @@
       "Orchestrator"
     ],
     "importedBy": [],
-    "lineCount": 511,
-    "lastUpdated": "2026-05-08T01:08:56.424Z"
+    "lineCount": 509,
+    "lastUpdated": "2026-05-08T02:30:53.071Z"
   },
   "js/components/ChatPane.jsx": {
     "description": "js/components/ChatPane.jsx",
@@ -93,7 +96,7 @@
     ],
     "importedBy": [],
     "lineCount": 179,
-    "lastUpdated": "2026-05-08T01:08:56.424Z"
+    "lastUpdated": "2026-05-08T02:30:53.071Z"
   },
   "js/components/LeftPane.jsx": {
     "description": "js/components/LeftPane.jsx",
@@ -105,7 +108,7 @@
     ],
     "importedBy": [],
     "lineCount": 88,
-    "lastUpdated": "2026-05-08T01:08:56.424Z"
+    "lastUpdated": "2026-05-08T02:30:53.071Z"
   },
   "js/components/Navbar.jsx": {
     "description": "js/components/Navbar.jsx",
@@ -115,7 +118,7 @@
     "imports": [],
     "importedBy": [],
     "lineCount": 218,
-    "lastUpdated": "2026-05-08T01:08:56.424Z"
+    "lastUpdated": "2026-05-08T02:30:53.071Z"
   },
   "js/handlers/useCommandHandler.js": {
     "description": "js/handlers/useCommandHandler.js",
@@ -138,8 +141,8 @@
       "ContextMatcher"
     ],
     "importedBy": [],
-    "lineCount": 698,
-    "lastUpdated": "2026-05-08T01:08:56.424Z"
+    "lineCount": 704,
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/services/conversationMemory.js": {
     "description": "js/services/conversationMemory.js",
@@ -155,7 +158,19 @@
       "js/state/useConversationState.js"
     ],
     "lineCount": 144,
-    "lastUpdated": "2026-05-08T01:08:56.424Z"
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
+  },
+  "js/services/executorApi.js": {
+    "description": "👇 Replace with your actual Railway deployment URL",
+    "exports": [
+      "ExecutorAPI"
+    ],
+    "imports": [],
+    "importedBy": [
+      "js/agents/executor.js"
+    ],
+    "lineCount": 38,
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/services/github.js": {
     "description": "── ALWAYS fetch the latest SHA before committing ──────────",
@@ -165,13 +180,14 @@
     "imports": [],
     "importedBy": [
       "js/agents/executor.js",
+      "js/agents/orchestrator.js",
       "js/agents/reviewer.js",
       "js/handlers/useCommandHandler.js",
       "js/state/useGitHubActions.js",
       "js/state/useWorkspaceState.js"
     ],
-    "lineCount": 168,
-    "lastUpdated": "2026-05-08T01:08:56.424Z"
+    "lineCount": 195,
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/services/llmProvider.js": {
     "description": "js/services/llmProvider.js",
@@ -188,7 +204,7 @@
       "js/utils/sanityCheck.js"
     ],
     "lineCount": 118,
-    "lastUpdated": "2026-05-08T01:08:56.424Z"
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/services/modelRegistry.js": {
     "description": "Hardcoded fallback that works without any API call",
@@ -200,7 +216,7 @@
       "js/state/useProviderState.js"
     ],
     "lineCount": 30,
-    "lastUpdated": "2026-05-08T01:08:56.424Z"
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/services/openrouter.js": {
     "description": "Simulates streaming by progressively revealing text",
@@ -210,7 +226,19 @@
     "imports": [],
     "importedBy": [],
     "lineCount": 86,
-    "lastUpdated": "2026-05-08T01:08:56.424Z"
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
+  },
+  "js/services/smokeTest.js": {
+    "description": "Poll a URL until it returns a successful response with the root element",
+    "exports": [
+      "SmokeTest"
+    ],
+    "imports": [],
+    "importedBy": [
+      "js/agents/orchestrator.js"
+    ],
+    "lineCount": 43,
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/services/taskManager.js": {
     "description": "422 = milestone already exists with this title — find it and reuse",
@@ -222,7 +250,7 @@
       "js/handlers/useCommandHandler.js"
     ],
     "lineCount": 208,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/services/taskQueue.js": {
     "description": "js/services/taskQueue.js",
@@ -240,7 +268,7 @@
       "js/handlers/useCommandHandler.js"
     ],
     "lineCount": 111,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/services/webSearch.js": {
     "description": "Search the web using Firecrawl (via Netlify proxy).",
@@ -252,7 +280,7 @@
       "js/handlers/useCommandHandler.js"
     ],
     "lineCount": 59,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/state/useConversationState.js": {
     "description": "js/state/useConversationState.js",
@@ -264,7 +292,7 @@
     ],
     "importedBy": [],
     "lineCount": 118,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/state/useGitHubActions.js": {
     "description": "js/state/useGitHubActions.js",
@@ -276,7 +304,7 @@
     ],
     "importedBy": [],
     "lineCount": 175,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/state/useProviderState.js": {
     "description": "js/state/useProviderState.js",
@@ -288,7 +316,7 @@
     ],
     "importedBy": [],
     "lineCount": 80,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/state/useWorkspaceState.js": {
     "description": "js/state/useWorkspaceState.js",
@@ -300,7 +328,7 @@
     ],
     "importedBy": [],
     "lineCount": 78,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/utils/ErrorBoundary.jsx": {
     "description": null,
@@ -310,7 +338,7 @@
     "imports": [],
     "importedBy": [],
     "lineCount": 32,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/utils/ThemeContext.js": {
     "description": "js/utils/themeContext.js",
@@ -322,7 +350,7 @@
     "imports": [],
     "importedBy": [],
     "lineCount": 37,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/utils/agentSkills.js": {
     "description": "js/utils/agentSkills.js",
@@ -332,7 +360,7 @@
     "imports": [],
     "importedBy": [],
     "lineCount": 78,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/utils/commands.js": {
     "description": "js/utils/commands.js",
@@ -343,8 +371,8 @@
     "importedBy": [
       "js/handlers/useCommandHandler.js"
     ],
-    "lineCount": 31,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lineCount": 32,
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/utils/contextBuilder.js": {
     "description": "js/utils/contextBuilder.js",
@@ -357,7 +385,7 @@
       "js/agents/reviewer.js"
     ],
     "lineCount": 131,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/utils/contextMatcher.js": {
     "description": "Select the most relevant preferences for a given context.",
@@ -372,7 +400,7 @@
       "js/handlers/useCommandHandler.js"
     ],
     "lineCount": 32,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/utils/diffUtils.js": {
     "description": "js/utils/diffUtils.js",
@@ -384,7 +412,7 @@
       "js/handlers/useCommandHandler.js"
     ],
     "lineCount": 118,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lastUpdated": "2026-05-08T02:30:53.072Z"
   },
   "js/utils/intentDetector.js": {
     "description": "Search",
@@ -397,7 +425,7 @@
       "js/handlers/useCommandHandler.js"
     ],
     "lineCount": 172,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lastUpdated": "2026-05-08T02:30:53.073Z"
   },
   "js/utils/manifestParser.js": {
     "description": "js/utils/manifestParser.js",
@@ -414,7 +442,7 @@
       "js/utils/manifestParser.js"
     ],
     "lineCount": 228,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lastUpdated": "2026-05-08T02:30:53.073Z"
   },
   "js/utils/markdown.js": {
     "description": null,
@@ -424,7 +452,7 @@
     "imports": [],
     "importedBy": [],
     "lineCount": 39,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lastUpdated": "2026-05-08T02:30:53.073Z"
   },
   "js/utils/sanityCheck.js": {
     "description": null,
@@ -436,6 +464,6 @@
     ],
     "importedBy": [],
     "lineCount": 23,
-    "lastUpdated": "2026-05-08T01:08:56.425Z"
+    "lastUpdated": "2026-05-08T02:30:53.073Z"
   }
 }
