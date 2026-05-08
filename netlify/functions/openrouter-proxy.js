@@ -1,4 +1,6 @@
 // netlify/functions/openrouter-proxy.js
+// Always streams — avoids Netlify's 10s sync function timeout.
+
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
@@ -11,44 +13,30 @@ exports.handler = async (event) => {
 
   try {
     const requestBody = JSON.parse(event.body);
-    const wantsStream = requestBody.stream === true;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 29000);
+    // Force streaming — first chunk arrives fast, keeping Netlify connection alive.
+    requestBody.stream = true;
 
     const upstreamRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': event.headers.origin || 'https://your-site.netlify.app',
+        'HTTP-Referer': event.headers?.origin || 'https://your-site.netlify.app',
         'X-Title': 'Claude Code Web',
       },
       body: JSON.stringify(requestBody),
-      signal: controller.signal,
     });
-
-    clearTimeout(timeout);
 
     if (!upstreamRes.ok) {
       const errorText = await upstreamRes.text();
       return {
         statusCode: upstreamRes.status,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: errorText }),
       };
     }
 
-    if (!wantsStream) {
-      // Non‑streaming: collect full response and return JSON
-      const data = await upstreamRes.json();
-      return {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      };
-    }
-
-    // Streaming: pipe the raw SSE stream
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
 
@@ -61,7 +49,7 @@ exports.handler = async (event) => {
           await writer.write(value);
         }
       } catch (err) {
-        console.error('Stream error:', err);
+        console.error('OpenRouter stream error:', err);
       } finally {
         await writer.close();
       }
@@ -73,14 +61,15 @@ exports.handler = async (event) => {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
       },
     });
+
   } catch (error) {
-    const isTimeout = error.name === 'AbortError';
-    console.error(isTimeout ? 'OpenRouter timeout' : 'OpenRouter proxy error:', error);
+    console.error('OpenRouter proxy error:', error);
     return {
-      statusCode: isTimeout ? 504 : 500,
-      body: JSON.stringify({ error: isTimeout ? 'OpenRouter API timed out' : error.message }),
+      statusCode: 500,
+      body: JSON.stringify({ error: error.message }),
     };
   }
 };
