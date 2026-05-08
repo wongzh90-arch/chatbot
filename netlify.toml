@@ -6,10 +6,13 @@
   node_bundler = "esbuild"
 
 [functions."deepseek-proxy"]
-  timeout = 30
+  timeout = 26
 
 [functions."openrouter-proxy"]
-  timeout = 30
+  timeout = 26
+
+[functions."firecrawl-proxy"]
+  timeout = 26
 
 [build.environment]
   NODE_VERSION = "18"
