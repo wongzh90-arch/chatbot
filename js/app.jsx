@@ -27,45 +27,53 @@ function AppContent() {
   const [projectMemory, setProjectMemory] = useState([]);
   useEffect(() => {
     if (!workspace.currentRepo) { setProjectMemory([]); return; }
-        localStorage.setItem(`MEM_${workspace.currentRepo}`, JSON.stringify([]));
+    const saved = localStorage.getItem(`MEM_${workspace.currentRepo}`);
+    setProjectMemory(saved ? JSON.parse(saved) : []);
+  }, [workspace.currentRepo]);
+  const addMemoryRule = (rule) => {
+    const updated = [...projectMemory, rule];
+    setProjectMemory(updated);
+    localStorage.setItem(`MEM_${workspace.currentRepo}`, JSON.stringify(updated));
   };
- // ── User memory ───────────────────────────────────────────────
+  const clearMemory = () => {
+    setProjectMemory([]);
+    localStorage.setItem(`MEM_${workspace.currentRepo}`, JSON.stringify([]));
+  };
+
+  // ── User memory ───────────────────────────────────────────────
   const [userMemory, setUserMemory] = useState(() => {
     const saved = localStorage.getItem('USER_MEMORY');
     return saved ? JSON.parse(saved) : [];
-        localStorage.setItem('USER_MEMORY', JSON.stringify(userMemory));
+  });
+  useEffect(() => {
+    localStorage.setItem('USER_MEMORY', JSON.stringify(userMemory));
   }, [userMemory]);
- // ── Layout state ──────────────────────────────────────────────
-  // showConvDrawer: mobile slide-up conversation list
-  // showLeftPane:  desktop side panel (files/memory/tasks)
-  // mobileTab:     which bottom tab is active on mobile
+
+  // ── Layout state ──────────────────────────────────────────────
   const [showConvDrawer, setShowConvDrawer] = useState(false);
   const [showLeftPane,   setShowLeftPane]   = useState(false);
-  const [mobileTab,      setMobileTab]      = useState('chat'); // 'chat' | 'files' | 'tasks'
-
-  // ── Tab (Navbar) ──────────────────────────────────────────────
   const [mobileTab,      setMobileTab]      = useState('chat');
   const [activeTab, setActiveTab] = useState('chat');
 
-  // Sync activeTab → mobileTab on desktop tab clicks
   useEffect(() => { setMobileTab(activeTab); }, [activeTab]);
 
-  // When run starts, switch to tasks; when done, back to chat
   useEffect(() => {
-    // Stay in current tab – do NOT auto‑switch to tasks
     if (!conversation.isRunActive) {
       setActiveTab('chat');
       setMobileTab('chat');
       setTimeout(() => conversation.scrollToBottom(), 50);
     }
   }, [conversation.isRunActive]);
-  
-  // ── GitHub actions ────────────────────────────────────────────
 
+  // ── GitHub actions ────────────────────────────────────────────
   const github = window.useGitHubActions({
     currentRepo:    workspace.currentRepo,
     currentBranch:  workspace.currentBranch,
-       addToast,
+    setCurrentBranch: workspace.setCurrentBranch,
+    githubToken:    workspace.githubToken,
+    deployHook:     workspace.deployHook,
+    workspace:      workspace.workspace,
+    addToast,
   });
 
   // ── Orchestrator tasks ────────────────────────────────────────
@@ -80,27 +88,58 @@ function AppContent() {
   const commands = window.useCommandHandler({
     provider:             provider.provider,
     selectedModel:        provider.selectedModel,
+    thinkingMode:         provider.thinkingMode,
+    reasoningEffort:      provider.reasoningEffort,
+    currentRepo:          workspace.currentRepo,
+    currentBranch:        workspace.currentBranch,
+    setCurrentBranch:     workspace.setCurrentBranch,
+    githubToken:          workspace.githubToken,
+    systemPromptOverride: workspace.systemPromptOverride,
+    messages:             conversation.messages,
+    setMessages:          conversation.setMessages,
+    uploadedContext:      conversation.uploadedContext,
+    setUploadedContext:   conversation.setUploadedContext,
+    setStreamingMessage:  conversation.setStreamingMessage,
+    setStreamingReasoning: conversation.setStreamingReasoning,
+    isRunActive:          conversation.isRunActive,
+    setIsRunActive:       conversation.setIsRunActive,
+    fetchFileTree:        github.fetchFileTree,
+    loadFile:             github.loadFile,
+    commitChange:         github.commitChange,
+    handleCreateBranch:   github.handleCreateBranch,
+    handleSwitchBranch:   github.handleSwitchBranch,
+    handleCreatePR:       github.handleCreatePR,
+    projectMemory, addMemoryRule, clearMemory,
+    userMemory, setUserMemory,
+    orchestratorTasks, setOrchestratorTasks,
+    addToast,
     inputPrompt, setInputPrompt,
     manifest:             workspace.manifest,
     setStatusMessage:     conversation.setStatusMessage,
-    conversation,         // <-- ADDED
-    fileTree:             github.fileTree, // <-- ADDED
+    conversation,         // ✅ ADDED – needed for autoResearch and pendingPlan
+    fileTree:             github.fileTree, // ✅ ADDED – needed for clarifier
   });
 
   // ── File interactions ─────────────────────────────────────────
   const handleFileClick = async (path) => {
     const fileData = await github.loadFile(path);
     if (fileData) commands.pushFileCard(fileData);
+  };
+  const handleCommitFile = async (path, content, sha, message) => {
     return await github.commitChange(path, content, sha, message);
   };
+
   // ── Theme tokens ──────────────────────────────────────────────
   const isDark = theme === 'dark';
   const bg        = isDark ? 'bg-zinc-950'   : 'bg-white';
   const border    = isDark ? 'border-zinc-800' : 'border-gray-200';
-   const hoverBg   = isDark ? 'hover:bg-zinc-800' : 'hover:bg-gray-100';
+  const sidebarBg = isDark ? 'bg-zinc-900'   : 'bg-gray-50';
+  const textMuted = isDark ? 'text-zinc-500'  : 'text-gray-400';
+  const textPrimary = isDark ? 'text-zinc-200' : 'text-gray-800';
+  const hoverBg   = isDark ? 'hover:bg-zinc-800' : 'hover:bg-gray-100';
   const activeConvBg = isDark ? 'bg-zinc-800 text-zinc-100' : 'bg-amber-50 text-amber-800';
 
-  // ── Tasks panel (full-width, used in both desktop tasks tab and mobile tasks tab) ──
+  // ── Tasks panel ───────────────────────────────────────────────
   const TasksPanel = () => {
     const tasks  = window.TaskQueue ? window.TaskQueue.getAllTasks() : orchestratorTasks || [];
     const state  = window.TaskQueue ? window.TaskQueue.getState()   : null;
@@ -154,9 +193,8 @@ function AppContent() {
     );
   };
 
-  // ── Conversation sidebar (shared by desktop + mobile drawer) ──
+  // ── Conversation sidebar ──────────────────────────────────────
   const ConvList = ({ onSelect }) => React.createElement('div', { className: 'flex flex-col h-full' },
-    // Header
     React.createElement('div', {
       className: `px-3 py-3 border-b ${border} flex items-center justify-between shrink-0`
     },
@@ -166,7 +204,6 @@ function AppContent() {
         className: 'text-[11px] bg-amber-600 hover:bg-amber-500 text-zinc-950 px-2.5 py-1 rounded-lg font-bold transition'
       }, '+ New')
     ),
-    // List
     React.createElement('div', { className: 'flex-1 overflow-y-auto custom-scrollbar py-1' },
       conversation.conversations.map(conv =>
         React.createElement('div', {
@@ -188,15 +225,13 @@ function AppContent() {
     )
   );
 
-  // ── Mobile: conversation drawer (slide up from bottom) ────────
+  // ── Mobile conversation drawer ────────────────────────────────
   const MobileConvDrawer = () => React.createElement(React.Fragment, null,
-    // Backdrop
     React.createElement('div', {
       onClick: () => setShowConvDrawer(false),
       className: `fixed inset-0 z-40 bg-black/50 transition-opacity ${showConvDrawer ? 'opacity-100' : 'opacity-0 pointer-events-none'}`,
       style: { transition: 'opacity 220ms ease-out' }
     }),
-    // Sheet
     React.createElement('div', {
       className: `fixed bottom-0 left-0 right-0 z-50 ${sidebarBg} border-t ${border} rounded-t-2xl`,
       style: {
@@ -205,7 +240,6 @@ function AppContent() {
         transition: 'transform 280ms cubic-bezier(0.22, 1, 0.36, 1)',
       }
     },
-      // Drag handle
       React.createElement('div', { className: 'flex justify-center pt-2.5 pb-1' },
         React.createElement('div', { className: `w-10 h-1 rounded-full ${isDark ? 'bg-zinc-700' : 'bg-gray-300'}` })
       ),
@@ -213,7 +247,7 @@ function AppContent() {
     )
   );
 
-  // ── Mobile: bottom tab bar ────────────────────────────────────
+  // ── Mobile tab bar ────────────────────────────────────────────
   const MobileTabBar = () => {
     const tabs = [
       { id: 'chat',  icon: '💬', label: 'Chat' },
@@ -235,7 +269,6 @@ function AppContent() {
         React.createElement('span', { className: 'text-lg leading-none' }, tab.icon),
         React.createElement('span', { className: 'text-[10px] font-medium' }, tab.label)
       )),
-      // Conversations button
       React.createElement('button', {
         onClick: () => setShowConvDrawer(true),
         className: `flex-1 flex flex-col items-center gap-0.5 py-2.5 transition ${textMuted} active:scale-95`
@@ -246,15 +279,10 @@ function AppContent() {
     );
   };
 
-  // ── Desktop: left panel toggle button (in Navbar area) ────────
-  // We pass a custom slot via the existing Navbar. Since Navbar doesn't support
-  // arbitrary children, we'll overlay a toggle button above the body.
-
   // ── Main render ───────────────────────────────────────────────
   return React.createElement('div', {
     className: `flex flex-col h-screen ${bg} overflow-hidden`
   },
-    // ── Toasts ──────────────────────────────────────────────────
     React.createElement('div', {
       className: 'fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none'
     },
@@ -268,7 +296,7 @@ function AppContent() {
         }`
       }, t.message))
     ),
- // ── Navbar ───────────────────────────────────────────────────
+
     React.createElement(window.Navbar, {
       theme, toggleTheme,
       workspace:            workspace.workspace,
@@ -300,22 +328,16 @@ function AppContent() {
       activeTab,
       setActiveTab,
     }),
-// ── Body ─────────────────────────────────────────────────────
+
     React.createElement(window.ErrorBoundary, null,
 
-      // ════════════════════════════════════════════════════════════
-      // DESKTOP LAYOUT  (md and above)
-      // ════════════════════════════════════════════════════════════
+      // DESKTOP LAYOUT (md and above)
       React.createElement('div', { className: 'hidden md:flex flex-1 overflow-hidden' },
-
-        // ── Desktop: conversation sidebar (always visible) ───────
         React.createElement('div', {
           className: `w-52 shrink-0 ${sidebarBg} border-r ${border} flex flex-col overflow-hidden`
         },
           React.createElement(ConvList, null)
         ),
-
-        // ── Desktop: optional LeftPane (files/memory/tasks) ──────
         showLeftPane && React.createElement('div', {
           className: `w-56 shrink-0 border-r ${border} flex flex-col overflow-hidden`,
           style: {
@@ -335,11 +357,7 @@ function AppContent() {
             onFetchFileTree:   github.fetchFileTree,
           })
         ),
-
-        // ── Desktop: main area ────────────────────────────────────
         React.createElement('div', { className: 'flex flex-1 flex-col overflow-hidden' },
-
-          // Toggle strip for LeftPane
           React.createElement('div', {
             className: `flex items-center gap-2 px-3 py-1.5 border-b ${border} ${sidebarBg} shrink-0`
           },
@@ -355,15 +373,12 @@ function AppContent() {
               React.createElement('span', null, showLeftPane ? '◀' : '▶'),
               React.createElement('span', null, showLeftPane ? 'Hide panel' : 'Files & Memory')
             ),
-            // Workspace indicator
             React.createElement('span', {
               className: `ml-auto text-[10px] font-mono px-2 py-0.5 rounded border ${
                 isDark ? 'border-zinc-700 text-zinc-500' : 'border-gray-200 text-gray-400'
               }`
             }, workspace.currentRepo || 'no repo')
           ),
-
-          // Tasks tab or ChatPane
           activeTab === 'tasks'
             ? React.createElement(TasksPanel, null)
             : React.createElement(window.ChatPane, {
@@ -395,15 +410,10 @@ function AppContent() {
         )
       ),
 
-      // ════════════════════════════════════════════════════════════
-      // MOBILE LAYOUT  (below md)
-      // ════════════════════════════════════════════════════════════
+      // MOBILE LAYOUT (below md)
       React.createElement('div', { className: 'flex md:hidden flex-1 flex-col overflow-hidden' },
-
-        // Active tab content
         mobileTab === 'tasks'
           ? React.createElement(TasksPanel, null)
-
           : mobileTab === 'files'
           ? React.createElement('div', { className: 'flex-1 overflow-hidden' },
               React.createElement(window.LeftPane, {
@@ -418,43 +428,38 @@ function AppContent() {
                 onFetchFileTree:   github.fetchFileTree,
               })
             )
-
-          : // 'chat' (default)
-          React.createElement(window.ChatPane, {
-            theme,
-            messages:          conversation.messages,
-            inputPrompt,
-            setInputPrompt,
-            uploadedContext:   conversation.uploadedContext,
-            setUploadedContext: conversation.setUploadedContext,
-            isLoading:         github.isLoading,
-            onSend:            commands.sendMessage,
-            onFileUpload:      commands.handleFileUpload,
-            showCmdHints,
-            onCmdHintClick: cmd => {
-              setInputPrompt(cmd + ' ');
-              if (conversation.inputRef.current) conversation.inputRef.current.focus();
-            },
-            chatScrollRef:     conversation.chatScrollRef,
-            inputRef:          conversation.inputRef,
-            streamingMessage:  conversation.streamingMessage,
-            statusMessage:     conversation.statusMessage,
-            isRunActive:       conversation.isRunActive,
-            onPause: () => {
-              if (window.Orchestrator) window.Orchestrator.requestPause('user');
-              addToast('⏸ Pause requested — stopping after current task', 'info');
-            },
-            onCommitFile: handleCommitFile,
-          }),
-
-        // Bottom tab bar (always visible on mobile)
+          : React.createElement(window.ChatPane, {
+              theme,
+              messages:          conversation.messages,
+              inputPrompt,
+              setInputPrompt,
+              uploadedContext:   conversation.uploadedContext,
+              setUploadedContext: conversation.setUploadedContext,
+              isLoading:         github.isLoading,
+              onSend:            commands.sendMessage,
+              onFileUpload:      commands.handleFileUpload,
+              showCmdHints,
+              onCmdHintClick: cmd => {
+                setInputPrompt(cmd + ' ');
+                if (conversation.inputRef.current) conversation.inputRef.current.focus();
+              },
+              chatScrollRef:     conversation.chatScrollRef,
+              inputRef:          conversation.inputRef,
+              streamingMessage:  conversation.streamingMessage,
+              statusMessage:     conversation.statusMessage,
+              isRunActive:       conversation.isRunActive,
+              onPause: () => {
+                if (window.Orchestrator) window.Orchestrator.requestPause('user');
+                addToast('⏸ Pause requested — stopping after current task', 'info');
+              },
+              onCommitFile: handleCommitFile,
+            }),
         React.createElement(MobileTabBar, null),
-
-        // Conversation drawer
         React.createElement(MobileConvDrawer, null)
       )
     )
   );
+}
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(React.createElement(App));
