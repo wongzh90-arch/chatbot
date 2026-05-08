@@ -1,6 +1,6 @@
 // js/services/docSearch.js
 window.DocSearch = (() => {
-  // Default documentation sources (only used for filtering in old version – kept for compatibility)
+  // Default documentation sources (unused but kept for compatibility)
   const DEFAULT_SOURCES = [
     { domain: 'react.dev', name: 'React' },
     { domain: 'tailwindcss.com', name: 'Tailwind CSS' },
@@ -8,7 +8,7 @@ window.DocSearch = (() => {
     { domain: 'developer.mozilla.org', name: 'MDN' }
   ];
 
-  // Direct call to Firecrawl scrape
+  // Direct call to Firecrawl scrape (Netlify Edge Function)
   async function scrapePage(pageUrl) {
     try {
       const res = await fetch('/.netlify/functions/firecrawl-proxy/scrape', {
@@ -28,6 +28,18 @@ window.DocSearch = (() => {
     }
   }
 
+  // Get current provider/model from localStorage (safe, no React hooks)
+  function getModelConfig() {
+    const provider = localStorage.getItem('PROVIDER') || 'deepseek';
+    let model;
+    if (provider === 'deepseek') {
+      model = localStorage.getItem('OR_MODEL') || 'deepseek-v4-flash';
+    } else {
+      model = localStorage.getItem('OR_MODEL') || 'openrouter/auto';
+    }
+    return { provider, model };
+  }
+
   /**
    * Smart search: returns search results, optionally scrapes top result,
    * then returns a concise summary.
@@ -38,7 +50,7 @@ window.DocSearch = (() => {
   async function smartSearch(query, options = {}) {
     const { alwaysScrape = false, maxScrapedPages = 1 } = options;
 
-    // Step 1: Get search results (snippets) via existing WebSearchService (Firecrawl)
+    // Step 1: Get search results (snippets) via WebSearchService (Firecrawl search)
     let searchResults = [];
     try {
       searchResults = await window.WebSearchService.search(query, { count: 3 });
@@ -70,11 +82,12 @@ window.DocSearch = (() => {
 
     let summary = '';
     try {
+      const { provider, model } = getModelConfig();
       const llmReply = await window.LLMProvider.chatCompletion({
-        provider: window.useProviderState?.().provider || 'deepseek',
-        model: window.useProviderState?.().selectedModel || 'deepseek-v4-flash',
+        provider,
+        model,
         messages: [],
-        systemPrompt: 'You are a research assistant. Summarise the key information relevant to the user\'s query. Be concise (max 200 words). Use bullet points if helpful.',
+        systemPrompt: 'You are a research assistant. Summarise the key information relevant to the user\'s query. Be concise (max 200 words). Use bullet points if helpful. Include citations as [Source Name](url) when available.',
         userContent: `Query: ${query}\n\nSearch results:\n${snippetsBlock}${scrapedBlock}`,
         thinkingMode: false,
       });
@@ -87,9 +100,9 @@ window.DocSearch = (() => {
     return { summary, scrapedContent, searchResults };
   }
 
-  // For backward compatibility with previous calls (like in /plan clarification)
+  // For backward compatibility with older calls (e.g., in /plan clarification)
   async function searchDocs(query, sources = DEFAULT_SOURCES) {
-    // This version just returns a simple summary (no scraping)
+    // This version returns just a simple summary (no scraping)
     const result = await smartSearch(query, { alwaysScrape: false });
     return result.summary;
   }
