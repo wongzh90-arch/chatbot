@@ -17,12 +17,13 @@ window.useCommandHandler = function useCommandHandler({
   orchestratorTasks, setOrchestratorTasks,
   addToast,
   inputPrompt, setInputPrompt,
-  loadManifest,
   manifest,
+  conversation, // <-- added to access pendingPlan
+  fileTree,     // <-- added for clarifier
 }) {
   const { useRef } = React;
   const selfImproveRunning = useRef(false);
-  // ── Convenience: set status, auto-clear when passed '' ───────
+  // Convenience: set status, auto-clear when passed ''
   const setStatus = (msg) => {
     if (setStatusMessage) setStatusMessage(msg);
   };
@@ -106,7 +107,7 @@ window.useCommandHandler = function useCommandHandler({
     systemPromptOverride,
     addToast,
     setMessages,
-    fileTree: [],
+    fileTree: fileTree || [],
     manifest,
   });
   const getLastFileContext = () => {
@@ -190,12 +191,6 @@ window.useCommandHandler = function useCommandHandler({
         ]);
         return true;
       }
-        case '/set-site':
-        if (!args) { addToast('Provide Netlify site name', 'error'); return true; }
-        localStorage.setItem('NETLIFY_SITE_NAME', args);
-        addToast(`Netlify site name set to "${args}"`, 'success');
-        setMessages(prev => [...prev, { role: 'assistant', content: `🌐 Netlify site name saved: ${args}` }]);
-        return true;
       case '/switch': {
         if (!args) { addToast('Specify branch', 'error'); return true; }
         await handleSwitchBranch(args);
@@ -246,11 +241,46 @@ window.useCommandHandler = function useCommandHandler({
         if (!args) { addToast('Provide a goal.', 'error'); return true; }
         setMessages(prev => [...prev, { role: 'user', content: userText }]);
         setIsRunActive(true);
-        setStatus('🔍 Analysing repository and building plan...');
-        const planResult = await window.Orchestrator.runPlanPhase({ ...orchArgs(), goal: args });
-        await refreshTasks();
-        setStatus('');
-        if (!planResult?.paused) setIsRunActive(false);
+        setStatus('🤔 Asking clarifying questions...');
+        try {
+          // Use clarifier only if available
+          if (window.Clarifier) {
+            const questions = await window.Clarifier.askQuestions(
+              args, currentRepo, currentBranch, fileTree || [], manifest, projectMemory
+            );
+            if (questions && questions.length > 0) {
+              conversation.setPendingPlan({
+                goal: args,
+                questions,
+                repo: currentRepo,
+                branch: currentBranch,
+                provider, model: selectedModel, thinkingMode, reasoningEffort,
+                systemPromptOverride,
+                manifest,
+                fileTree: fileTree || [],
+                projectMemory,
+                userMemory,
+              });
+              setStatus('');
+              setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: `I have a few questions to better understand your request:\n\n${questions.map((q, i) => `${i+1}. ${q}`).join('\n')}\n\nPlease answer them in the chat.`
+              }]);
+              setIsRunActive(false);
+              return true;
+            }
+          }
+          // No questions – proceed directly
+          setStatus('🔍 Analysing repository and building plan...');
+          const planResult = await window.Orchestrator.runPlanPhase({ ...orchArgs(), goal: args });
+          await refreshTasks();
+          setStatus('');
+          if (!planResult?.paused) setIsRunActive(false);
+        } catch (err) {
+          setStatus('');
+          addToast(`Planning failed: ${err.message}`, 'error');
+          setIsRunActive(false);
+        }
         return true;
       }
       case '/execute': {
@@ -305,7 +335,6 @@ window.useCommandHandler = function useCommandHandler({
       }
       case '/tasks': {
         await refreshTasks();
-        const oState = window.Orchestrator.getState();
         setMessages(prev => [...prev,
           { role: 'user', content: userText },
           { role: 'assistant', content: orchestratorTasks.length === 0
@@ -447,7 +476,7 @@ window.useCommandHandler = function useCommandHandler({
             if (existing) oldSha = existing.sha;
           } catch {}
           await commitChange('manifest.json', manifestJson, oldSha, 'chore: update manifest');
-          if (loadManifest) await loadManifest();
+          if (window.loadManifest) await window.loadManifest();
           addToast('✅ Manifest built and committed', 'success');
           setStatus('');
           setMessages(prev => [...prev, { role: 'assistant', content: `✅ **Manifest built** — ${Object.keys(manifest).length} modules indexed.` }]);
@@ -458,7 +487,6 @@ window.useCommandHandler = function useCommandHandler({
         }
         return true;
       }
-      // ========== NEW COMMAND: /analyze-arch ==========
       case '/analyze-arch': {
         if (!currentRepo || !githubToken) {
           addToast('Missing repo or token', 'error');
@@ -468,30 +496,23 @@ window.useCommandHandler = function useCommandHandler({
         setStatus('🏛️ Analysing architecture...');
         addToast('Loading key modules to understand architecture (this may take a moment)...', 'info');
         try {
-          // 1. Fetch the latest manifest.json directly (bypass stale closure)
           let currentManifest = null;
           try {
             const manifestFile = await loadFile('manifest.json');
             if (manifestFile && manifestFile.content) {
               currentManifest = JSON.parse(manifestFile.content);
             }
-          } catch (e) {
-            // manifest may not exist
-          }
+          } catch (e) {}
           if (!currentManifest) {
             setMessages(prev => [...prev, { role: 'assistant', content: 'No manifest found. Please run `/manifest-build` first.' }]);
             setStatus('');
             return true;
           }
-
-          // 2. Select important files: those with highest importedBy count + core UI files
           const entries = Object.entries(currentManifest);
           const sorted = entries.sort((a, b) => (b[1].importedBy?.length || 0) - (a[1].importedBy?.length || 0));
           const importantPaths = sorted.slice(0, 8).map(([path]) => path);
           const coreFiles = ['js/app.jsx', 'js/components/Navbar.jsx', 'js/components/LeftPane.jsx', 'js/components/ChatPane.jsx'];
           const toLoad = [...new Set([...coreFiles, ...importantPaths])].slice(0, 12);
-
-          // 3. Load content (truncated to 4000 chars each)
           const fileContents = [];
           for (const path of toLoad) {
             try {
@@ -499,11 +520,9 @@ window.useCommandHandler = function useCommandHandler({
               if (data) {
                 fileContents.push({ path, content: data.content.slice(0, 4000) });
               }
-            } catch (e) { /* ignore */ }
+            } catch (e) {}
           }
           if (fileContents.length === 0) throw new Error('Could not load any source files');
-
-          // 4. Build prompt for LLM
           const filesBlock = fileContents.map(f => `--- ${f.path} ---\n${f.content}\n`).join('\n');
           const archPrompt = `You are analysing a React web app that runs without a module bundler (no Webpack/Vite). All code is loaded via <script> tags and uses global window objects.
 
@@ -517,7 +536,6 @@ Then write a 2-3 sentence overall architecture description that explains how to 
 
 Files:
 ${filesBlock}`;
-
           const reply = await window.LLMProvider.chatCompletion({
             provider, model: selectedModel,
             messages: [],
@@ -525,15 +543,12 @@ ${filesBlock}`;
             userContent: archPrompt,
             thinkingMode: false,
           });
-
-          // 5. Store result
           const archSummary = {
             architecture: reply.content.split('\n\n')[0] || reply.content.slice(0, 500),
             rawAnalysis: reply.content,
             updatedAt: new Date().toISOString(),
           };
           window.ConversationMemory.setArchitecture(currentRepo, archSummary);
-
           setMessages(prev => [...prev, {
             role: 'assistant',
             content: `🏛️ **Architecture analysis complete.**\n\n${archSummary.architecture}\n\nThe planner will now respect these constraints when you run \`/plan\`.`
@@ -555,12 +570,57 @@ ${filesBlock}`;
     const userText = (overrideText || inputPrompt).trim();
     if (!userText) return;
     setInputPrompt('');
-    // Slash command – only proceed if recognised
+
+    // ----- Pending plan handling (clarification answers) -----
+    if (conversation.pendingPlan) {
+      const pending = conversation.pendingPlan;
+      // Clear pending immediately to avoid re‑processing
+      conversation.setPendingPlan(null);
+      setStatus('📝 Processing your answers...');
+      try {
+        // Extract answers from the user's text
+        let answers = {};
+        if (window.Clarifier) {
+          answers = await window.Clarifier.extractAnswers(pending.goal, pending.questions, userText);
+        }
+        // Build enhanced goal with answers
+        let enhancedGoal = pending.goal;
+        for (let i = 0; i < pending.questions.length; i++) {
+          const answer = answers[String(i+1)];
+          if (answer) enhancedGoal += `\n- ${pending.questions[i]} → ${answer}`;
+        }
+        // Optionally search documentation
+        let docsSummary = '';
+        if (window.DocSearch) {
+          setStatus('📚 Searching documentation...');
+          try {
+            docsSummary = await window.DocSearch.searchDocs(enhancedGoal);
+            if (docsSummary) enhancedGoal += `\n\nRelevant documentation:\n${docsSummary}`;
+          } catch(e) { console.warn('DocSearch failed', e); }
+        }
+        // Now run the plan with enriched goal
+        setStatus('🔍 Analysing repository and building plan...');
+        setIsRunActive(true);
+        const planResult = await window.Orchestrator.runPlanPhase({
+          ...orchArgs(),
+          goal: enhancedGoal,
+        });
+        await refreshTasks();
+        setStatus('');
+        if (!planResult?.paused) setIsRunActive(false);
+      } catch (err) {
+        setStatus('');
+        addToast(`Planning after clarification failed: ${err.message}`, 'error');
+        setIsRunActive(false);
+      }
+      return;
+    }
+
+    // ----- Slash command detection -----
     if (userText.startsWith('/')) {
       const parts = userText.split(' ');
       const handled = await executeSlashCommand(parts[0].toLowerCase(), parts.slice(1).join(' '), userText);
       if (handled) return;
-      // Unknown slash command – show error and stop
       setMessages(prev => [
         ...prev,
         { role: 'user', content: userText },
@@ -569,7 +629,8 @@ ${filesBlock}`;
       setInputPrompt('');
       return;
     }
-    // Intent detection
+
+    // ----- Intent detection (optional) -----
     if (window.IntentDetector) {
       const intent = window.IntentDetector.detect(userText);
       if (intent && intent.confidence >= 0.85) {
@@ -578,7 +639,8 @@ ${filesBlock}`;
         if (await executeSlashCommand(parts[0], parts.slice(1).join(' '), userText)) return;
       }
     }
-    // AI chat
+
+    // ----- AI chat (otherwise) -----
     const newMessages = [...messages, { role: 'user', content: userText }];
     setMessages(newMessages);
     setStatus('⏳ Waiting for response...');
