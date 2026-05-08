@@ -16,3 +16,10 @@
 [[edge_functions]]
   function = "langsearch-proxy"
   path = "/.netlify/functions/langsearch-proxy"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "https://cc-copy.netlify.app"
+    Access-Control-Allow-Methods = "GET"
+    Access-Control-Allow-Headers = "*"
