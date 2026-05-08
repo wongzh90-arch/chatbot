@@ -584,15 +584,18 @@ ${filesBlock}`;
     if (!userText) return;
     setInputPrompt('');
 
-    // Auto‑research: search documentation before answering
+   // Auto‑research: search documentation AND scrape full pages
     let searchContext = '';
     if (conversation.autoResearch && !userText.startsWith('/')) {
-      setStatus('🔍 Searching for relevant documentation...');
+      setStatus('🔍 Researching your question (reading web pages)...');
       try {
-        const results = await window.DocSearch.searchDocs(userText);
-        if (results) {
-          searchContext = `\n\n🔎 **Relevant information found via web search:**\n${results}\n\nPlease use this information to give a thoughtful, accurate response.`;
-          addToast('📚 Research added to context', 'info');
+        const research = await window.DocSearch.smartSearch(userText, { alwaysScrape: true, maxScrapedPages: 1 });
+        if (research && research.summary) {
+          searchContext = `\n\n🔎 **Research findings (including web page content):**\n${research.summary}\n${research.scrapedContent.length ? '\n(Full content from relevant page was used to inform this answer.)' : ''}\n\nPlease answer based on this research.`;
+          addToast('📚 Research complete – answer will be informed by web sources', 'info');
+        } else if (research && research.searchResults.length) {
+          // fallback: only snippets available
+          searchContext = `\n\n🔎 **Search results (snippets):**\n${research.searchResults.map(r => `- ${r.title}: ${r.snippet}`).join('\n')}\n\nAnswer based on this.`;
         }
       } catch (e) {
         console.warn('Auto-research failed', e);
