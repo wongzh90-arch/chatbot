@@ -17,7 +17,7 @@ Self-improving
 - ✅ **1E**: Self-updating manifest via `updateEntries` (JS, manifest sync)
 
 ### Phase 2 – Quality Gates (❌)
-- ❌ **2A**: Railway execution backend – lint/syntax check before commit (Node.js, ESLint)
+- ✅ **2A**: Railway execution backend – lint/syntax check before commit (Node.js, ESLint)
 - ❌ **2B**: Netlify preview smoke test – draft PR flow (Netlify, CI)
 - ❌ **2C**: Error log ingestion – stack trace parsing (JS, regex/parser)
 
@@ -26,4 +26,4 @@ Self-improving
 - ❌ **3B**: Regression detection (unit/E2E test comparison)
 - ❌ **3C**: Token budget manager (cost-aware planning)
 
-**Current build position: Phase 1E complete** – ready to begin Phase 2A.
+**Current build position: Phase 2A in progress** – implementing Railway execution backend.
