@@ -1,18 +1,18 @@
 [build]
   command = "node netlify/inject-preview-bypass.js"
-  functions = "netlify/functions"
 
-[functions]
-  node_bundler = "esbuild"
+[[edge_functions]]
+  function = "deepseek-proxy"
+  path = "/.netlify/functions/deepseek-proxy"
 
-[functions."deepseek-proxy"]
-  timeout = 26
+[[edge_functions]]
+  function = "openrouter-proxy"
+  path = "/.netlify/functions/openrouter-proxy"
 
-[functions."openrouter-proxy"]
-  timeout = 26
+[[edge_functions]]
+  function = "firecrawl-proxy"
+  path = "/.netlify/functions/firecrawl-proxy"
 
-[functions."firecrawl-proxy"]
-  timeout = 26
-
-[build.environment]
-  NODE_VERSION = "18"
+[[edge_functions]]
+  function = "langsearch-proxy"
+  path = "/.netlify/functions/langsearch-proxy"
