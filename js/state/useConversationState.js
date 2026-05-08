@@ -1,6 +1,6 @@
 // js/state/useConversationState.js
 // Owns: conversations list, active conversation, messages, streaming state,
-//       uploaded context, run-active flag (for pause button visibility)
+//       uploaded context, run-active flag, pending plan for clarification
 window.useConversationState = function useConversationState() {
   const { useState, useEffect, useRef } = React;
   // ── Conversation list ──────────────────────────────────────────
@@ -29,8 +29,9 @@ window.useConversationState = function useConversationState() {
   // ── Run-active flag (controls pause button visibility) ────────
   const [isRunActive, setIsRunActive] = useState(false);
   // ── Status message — shows what the agent is doing right now ──
-  // Set to a string while working, '' when idle.
   const [statusMessage, setStatusMessage] = useState('');
+  // ── Pending plan for clarification (Phase 1.5) ────────────────
+  const [pendingPlan, setPendingPlan] = useState(null);
   // ── Scroll ref for chat pane ──────────────────────────────────
   const chatScrollRef = useRef(null);
   const inputRef      = useRef(null);
@@ -47,6 +48,8 @@ window.useConversationState = function useConversationState() {
     } else {
       setMessages([{ role: 'assistant', content: 'New chat. Type `/help` for commands.' }]);
     }
+    // Clear pending plan when switching conversations
+    setPendingPlan(null);
   }, [activeConversationId]);
   // ── Persist messages for active conversation ──────────────────
   useEffect(() => {
@@ -84,7 +87,6 @@ window.useConversationState = function useConversationState() {
     setConversations(prev => prev.map(c => c.id === id ? { ...c, title } : c));
   };
   return {
-    // Conversation list
     conversations,
     setConversations,
     activeConversationId,
@@ -92,24 +94,20 @@ window.useConversationState = function useConversationState() {
     createNewConversation,
     deleteConversation,
     renameConversation,
-    // Messages
     messages,
     setMessages,
-    // Streaming
     streamingMessage,
     setStreamingMessage,
     streamingReasoning,
     setStreamingReasoning,
-    // File upload
     uploadedContext,
     setUploadedContext,
-    // Run state
     isRunActive,
     setIsRunActive,
-    // Status
     statusMessage,
     setStatusMessage,
-    // Refs
+    pendingPlan,
+    setPendingPlan,
     chatScrollRef,
     inputRef,
     scrollToBottom,
