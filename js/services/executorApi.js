@@ -1,6 +1,6 @@
 window.ExecutorAPI = (() => {
   // 👇 Replace with your actual Railway deployment URL
-  const API_URL = 'chatbot-production-72a9.up.railway.app';
+  const API_URL = 'https://chatbot-production-72a9.up.railway.app';
   const AUTH_TOKEN = localStorage.getItem('EXECUTOR_API_TOKEN') || '';
 
   async function call(endpoint, files) {
