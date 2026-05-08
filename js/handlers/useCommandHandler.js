@@ -585,23 +585,24 @@ ${filesBlock}`;
     setInputPrompt('');
 
    // Auto‑research: search documentation AND scrape full pages
-    let searchContext = '';
-    if (conversation.autoResearch && !userText.startsWith('/')) {
-      setStatus('🔍 Researching your question (reading web pages)...');
-      try {
-        const research = await window.DocSearch.smartSearch(userText, { alwaysScrape: true, maxScrapedPages: 1 });
-        if (research && research.summary) {
-          searchContext = `\n\n🔎 **Research findings (including web page content):**\n${research.summary}\n${research.scrapedContent.length ? '\n(Full content from relevant page was used to inform this answer.)' : ''}\n\nPlease answer based on this research.`;
-          addToast('📚 Research complete – answer will be informed by web sources', 'info');
-        } else if (research && research.searchResults.length) {
-          // fallback: only snippets available
-          searchContext = `\n\n🔎 **Search results (snippets):**\n${research.searchResults.map(r => `- ${r.title}: ${r.snippet}`).join('\n')}\n\nAnswer based on this.`;
+      let searchContext = '';
+      if (conversation.autoResearch && !userText.startsWith('/')) {
+        setStatus('🔍 Researching your question...');
+        try {
+          if (window.DocSearch && window.DocSearch.smartSearch) {
+            const research = await window.DocSearch.smartSearch(userText, { alwaysScrape: true });
+            if (research && research.summary) {
+              searchContext = `\n\n🔎 **Research findings:**\n${research.summary}\n\nPlease cite sources when using this information.`;
+              addToast('📚 Research added', 'info');
+            }
+          }
+        } catch (err) {
+          console.warn('Auto-research failed', err);
+          addToast('⚠️ Research unavailable – answering from training data', 'warning');
+        } finally {
+          setStatus('');
         }
-      } catch (e) {
-        console.warn('Auto-research failed', e);
       }
-      setStatus('');
-    }
 
     // Pending plan handling (clarification answers)
     if (conversation.pendingPlan) {
