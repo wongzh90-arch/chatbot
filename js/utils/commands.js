@@ -28,4 +28,5 @@ window.COMMANDS = [
     { cmd: '/manifest-build', desc: 'Build or refresh module manifest (commits manifest.json)' },
     { cmd: '/analyze-arch', desc: 'Analyse codebase architecture and store in memory (run /manifest-build first)' },
     { cmd: '/set-site', desc: 'Store Netlify site name for smoke tests (Usage: /set-site <site-name>)' },
+    { cmd: '/autoresearch', desc: 'Toggle auto‑research mode – searches docs before answering' },
 ];
