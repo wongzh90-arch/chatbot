@@ -34,7 +34,6 @@ window.Orchestrator = (() => {
     state.runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     pauseRequested = false;
     pauseReason = null;
-    // Reset the queue as well
     window.TaskQueue.resetQueue();
   }
 
@@ -92,7 +91,6 @@ window.Orchestrator = (() => {
         return { error: true, message: result.message || result.error };
       }
 
-      // Planner now returns tasks directly from queue
       state.tasks = result.tasks;
       state.milestone = { title: result.milestoneTitle, description: result.analysis };
 
@@ -158,7 +156,6 @@ window.Orchestrator = (() => {
     state.phase = 'executing';
 
     try {
-      // Refresh tasks from queue
       const allTasks = window.TaskQueue.getAllTasks();
       state.tasks = allTasks;
 
@@ -304,44 +301,79 @@ window.Orchestrator = (() => {
         state.phase = 'done';
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: '✅ **All tasks reviewed and passed!** Ready to merge.',
+          content: '✅ **All tasks reviewed and passed!** Creating draft PR and running smoke test...',
         }]);
 
-        // (Milestone closing is now conceptual – no GitHub issues to close)
-        // We keep the flag to avoid double-done but no API call needed.
-        if (window.ConversationMemory) {
-          window.ConversationMemory.recordRunCompleted(repo, branch, true);
+        // ── Phase 2B: Draft PR + Netlify smoke test ─────────────────
+        if (window.SmokeTest && window.GitHubService.createDraftPR) {
+          try {
+            const prTitle = `Self-improve: ${state.goal?.slice(0, 60) || 'Automated update'}`;
+            const pr = await window.GitHubService.createDraftPR(
+              repo, branch, prTitle, undefined, githubToken
+            );
+            setMessages(prev => [...prev, {
+              role: 'assistant',
+              content: `🔍 Draft PR #${pr.number} created. Waiting for Netlify preview...`
+            }]);
+
+            const smoke = await window.SmokeTest.testDeployPreview(repo, branch, githubToken, pr.number);
+            if (smoke.success) {
+              await window.GitHubService.convertPRToReady(repo, pr.number, githubToken);
+              setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: `✅ **Smoke test passed!** PR #${pr.number} is now ready for review.\n${pr.html_url}`
+              }]);
+              if (window.ConversationMemory) {
+                window.ConversationMemory.recordRunCompleted(repo, branch, true);
+              }
+            } else {
+              setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: `⚠️ **Smoke test failed:** ${smoke.error}\nPR #${pr.number} remains in draft. You can manually publish it after checking.\n${pr.html_url}`
+              }]);
+            }
+          } catch (err) {
+            setMessages(prev => [...prev, {
+              role: 'assistant',
+              content: `❌ **Smoke test error:** ${err.message}\nPR may not have been created.`
+            }]);
+          }
+        } else {
+          // Fallback – no smoke test available
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: '✅ All tasks passed. (Smoke test not configured – no Netlify site name set.)'
+          }]);
+        }
+        // Remain in 'done' phase, no further execution
+      } else {
+        if (state.reviewCycles >= MAX_REVIEW_CYCLES) {
+          state.phase = 'error';
+          const msg = `Review found ${result.issuesFound} issue(s) but cycle limit reached. Manual intervention needed.`;
+          addToast(msg, 'warning');
+          setMessages(prev => [...prev, { role: 'assistant', content: `🛑 ${msg}` }]);
+          return { error: true, message: msg };
         }
 
-        return { done: true };
+        state.phase = 'executing';
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `⚠️ **${result.issuesFound} task(s) need fixes.** Re-executing...`,
+        }]);
+
+        if (state.mode === 'autopilot') {
+          return await runExecutePhase({
+            repo, branch, githubToken,
+            provider, model, thinkingMode, reasoningEffort,
+            projectMemory, userMemory, systemPromptOverride,
+            addToast, setMessages,
+            setActiveFileContent: null, setActiveFilePath: null, setActiveTab: null,
+            manifest,
+          });
+        }
+
+        return { needsApproval: true, issuesFound: result.issuesFound };
       }
-
-      if (state.reviewCycles >= MAX_REVIEW_CYCLES) {
-        state.phase = 'error';
-        const msg = `Review found ${result.issuesFound} issue(s) but cycle limit reached. Manual intervention needed.`;
-        addToast(msg, 'warning');
-        setMessages(prev => [...prev, { role: 'assistant', content: `🛑 ${msg}` }]);
-        return { error: true, message: msg };
-      }
-
-      state.phase = 'executing';
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `⚠️ **${result.issuesFound} task(s) need fixes.** Re-executing...`,
-      }]);
-
-      if (state.mode === 'autopilot') {
-        return await runExecutePhase({
-          repo, branch, githubToken,
-          provider, model, thinkingMode, reasoningEffort,
-          projectMemory, userMemory, systemPromptOverride,
-          addToast, setMessages,
-          setActiveFileContent: null, setActiveFilePath: null, setActiveTab: null,
-          manifest,
-        });
-      }
-
-      return { needsApproval: true, issuesFound: result.issuesFound };
 
     } catch (err) {
       state.phase = 'error';
