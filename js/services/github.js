@@ -152,6 +152,31 @@ window.GitHubService = (() => {
     }
     return { commitSha: newCommitSha, filesCommitted: Object.keys(fileMap) };
   }
+      async function createDraftPR(repo, headBranch, title, baseBranch, token) {
+      const base = baseBranch || (await getRepoInfo(repo, token)).default_branch;
+      const res = await fetch(`https://api.github.com/repos/${repo}/pulls`, {
+        method: 'POST',
+        headers: headers(token),
+        body: JSON.stringify({
+          title,
+          head: headBranch,
+          base,
+          draft: true
+        })
+      });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    }
+    
+    async function convertPRToReady(repo, prNumber, token) {
+      const res = await fetch(`https://api.github.com/repos/${repo}/pulls/${prNumber}`, {
+        method: 'PATCH',
+        headers: headers(token),
+        body: JSON.stringify({ draft: false })
+      });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    }
   return {
     fetchFileTree,
     loadFileContent,
@@ -162,6 +187,8 @@ window.GitHubService = (() => {
     branchExists,
     getRepoInfo,
     getDefaultBranch,
-    resetBranch
+    resetBranch,
+    createDraftPR,      // <-- add
+    convertPRToReady,   // <-- add
   };
 })();
