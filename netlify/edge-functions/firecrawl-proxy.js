@@ -13,7 +13,7 @@ export default async (request) => {
   const path = url.pathname;
 
   try {
-    // ---- Scrape endpoint ----
+    // ---- Scrape endpoint (when path ends with /scrape) ----
     if (path === '/scrape') {
       const { url: pageUrl } = await request.json();
       if (!pageUrl) {
@@ -38,7 +38,7 @@ export default async (request) => {
       }
 
       const markdown = data.data?.markdown || '';
-      // Limit to 10,000 chars to avoid token bloat
+      // limit to 10k chars to avoid token bloat
       const truncated = markdown.slice(0, 10000);
       return new Response(JSON.stringify({ content: truncated, url: pageUrl }), {
         status: 200,
