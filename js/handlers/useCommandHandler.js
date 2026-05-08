@@ -18,12 +18,11 @@ window.useCommandHandler = function useCommandHandler({
   addToast,
   inputPrompt, setInputPrompt,
   manifest,
-  conversation, // <-- added to access pendingPlan
-  fileTree,     // <-- added for clarifier
+  conversation,
+  fileTree,
 }) {
   const { useRef } = React;
   const selfImproveRunning = useRef(false);
-  // Convenience: set status, auto-clear when passed ''
   const setStatus = (msg) => {
     if (setStatusMessage) setStatusMessage(msg);
   };
@@ -243,7 +242,6 @@ window.useCommandHandler = function useCommandHandler({
         setIsRunActive(true);
         setStatus('🤔 Asking clarifying questions...');
         try {
-          // Use clarifier only if available
           if (window.Clarifier) {
             const questions = await window.Clarifier.askQuestions(
               args, currentRepo, currentBranch, fileTree || [], manifest, projectMemory
@@ -270,7 +268,6 @@ window.useCommandHandler = function useCommandHandler({
               return true;
             }
           }
-          // No questions – proceed directly
           setStatus('🔍 Analysing repository and building plan...');
           const planResult = await window.Orchestrator.runPlanPhase({ ...orchArgs(), goal: args });
           await refreshTasks();
@@ -562,34 +559,62 @@ ${filesBlock}`;
         }
         return true;
       }
+      // ── NEW: /autoresearch command ───────────────────────────
+      case '/autoresearch': {
+        const mode = args?.toLowerCase();
+        let newState;
+        if (mode === 'on') newState = true;
+        else if (mode === 'off') newState = false;
+        else newState = !conversation.autoResearch;
+        conversation.setAutoResearch(newState);
+        addToast(`🔍 Auto-research mode ${newState ? 'ON' : 'OFF'}`, 'info');
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Auto-research mode turned ${newState ? 'ON' : 'OFF'}. ${newState ? 'I will search the web and documentation before answering your questions.' : ''}`
+        }]);
+        return true;
+      }
       default:
         return false;
     }
   };
+
   const sendMessage = async (overrideText) => {
     const userText = (overrideText || inputPrompt).trim();
     if (!userText) return;
     setInputPrompt('');
 
-    // ----- Pending plan handling (clarification answers) -----
+    // Auto‑research: search documentation before answering
+    let searchContext = '';
+    if (conversation.autoResearch && !userText.startsWith('/')) {
+      setStatus('🔍 Searching for relevant documentation...');
+      try {
+        const results = await window.DocSearch.searchDocs(userText);
+        if (results) {
+          searchContext = `\n\n🔎 **Relevant information found via web search:**\n${results}\n\nPlease use this information to give a thoughtful, accurate response.`;
+          addToast('📚 Research added to context', 'info');
+        }
+      } catch (e) {
+        console.warn('Auto-research failed', e);
+      }
+      setStatus('');
+    }
+
+    // Pending plan handling (clarification answers)
     if (conversation.pendingPlan) {
       const pending = conversation.pendingPlan;
-      // Clear pending immediately to avoid re‑processing
       conversation.setPendingPlan(null);
       setStatus('📝 Processing your answers...');
       try {
-        // Extract answers from the user's text
         let answers = {};
         if (window.Clarifier) {
           answers = await window.Clarifier.extractAnswers(pending.goal, pending.questions, userText);
         }
-        // Build enhanced goal with answers
         let enhancedGoal = pending.goal;
         for (let i = 0; i < pending.questions.length; i++) {
           const answer = answers[String(i+1)];
           if (answer) enhancedGoal += `\n- ${pending.questions[i]} → ${answer}`;
         }
-        // Optionally search documentation
         let docsSummary = '';
         if (window.DocSearch) {
           setStatus('📚 Searching documentation...');
@@ -598,7 +623,6 @@ ${filesBlock}`;
             if (docsSummary) enhancedGoal += `\n\nRelevant documentation:\n${docsSummary}`;
           } catch(e) { console.warn('DocSearch failed', e); }
         }
-        // Now run the plan with enriched goal
         setStatus('🔍 Analysing repository and building plan...');
         setIsRunActive(true);
         const planResult = await window.Orchestrator.runPlanPhase({
@@ -616,7 +640,7 @@ ${filesBlock}`;
       return;
     }
 
-    // ----- Slash command detection -----
+    // Slash command detection
     if (userText.startsWith('/')) {
       const parts = userText.split(' ');
       const handled = await executeSlashCommand(parts[0].toLowerCase(), parts.slice(1).join(' '), userText);
@@ -630,7 +654,7 @@ ${filesBlock}`;
       return;
     }
 
-    // ----- Intent detection (optional) -----
+    // Intent detection
     if (window.IntentDetector) {
       const intent = window.IntentDetector.detect(userText);
       if (intent && intent.confidence >= 0.85) {
@@ -640,7 +664,7 @@ ${filesBlock}`;
       }
     }
 
-    // ----- AI chat (otherwise) -----
+    // AI chat
     const newMessages = [...messages, { role: 'user', content: userText }];
     setMessages(newMessages);
     setStatus('⏳ Waiting for response...');
@@ -659,6 +683,7 @@ ${filesBlock}`;
       }
     }
     let sysPrompt = `You are an autonomous coding agent. Repo: ${currentRepo} (branch: ${currentBranch}).\n${fileBlock}${memoryStr}${contextBlock}\nUse <skill name="update_editor" file="path/to/file">FULL FILE CONTENT</skill> to propose file changes.\nUse <skill name="read_file" path="..."/> to request a file be loaded.`;
+    if (searchContext) sysPrompt += searchContext;
     if (systemPromptOverride && systemPromptOverride.trim()) {
       sysPrompt = systemPromptOverride + '\n\n' + sysPrompt;
     }
@@ -743,6 +768,7 @@ ${filesBlock}`;
       setStreamingReasoning(null);
     }
   };
+
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -754,6 +780,7 @@ ${filesBlock}`;
     });
     file.type.startsWith('image/') ? reader.readAsDataURL(file) : reader.readAsText(file);
   };
+
   return {
     sendMessage,
     handleFileUpload,
