@@ -32,6 +32,8 @@ window.useConversationState = function useConversationState() {
   const [statusMessage, setStatusMessage] = useState('');
   // ── Pending plan for clarification (Phase 1.5) ────────────────
   const [pendingPlan, setPendingPlan] = useState(null);
+  // ── Research stage ────────────────────────────────────────────
+  const [autoResearch, setAutoResearch] = useState(false);
   // ── Scroll ref for chat pane ──────────────────────────────────
   const chatScrollRef = useRef(null);
   const inputRef      = useRef(null);
@@ -111,5 +113,7 @@ window.useConversationState = function useConversationState() {
     chatScrollRef,
     inputRef,
     scrollToBottom,
+    autoResearch,
+    setAutoResearch,
   };
 };
