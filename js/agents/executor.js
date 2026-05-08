@@ -195,7 +195,7 @@ Rules:
           `${e.file}:${e.line || 1} - ${e.message}`
         ).join('\n');
 
-        const fixPrompt = `Your previous implementation had these errors:\n${errorDetails}\n\nPlease provide corrected FULL file content for each affected file using <skill name="update_editor" file="..."> blocks.`;
+        const fixPrompt = `Your previous implementation had these errors:\n${errorDetails}\n\nYou must output the COMPLETE corrected file content inside <skill name="update_editor" file="..."> blocks. Do not include any explanations, markdown formatting, or extra text. Only output the skill block(s).`;
 
         let retryReply;
         try {
