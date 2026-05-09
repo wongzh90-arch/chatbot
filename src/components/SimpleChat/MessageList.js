@@ -1,6 +1,7 @@
 import React from 'react';
 
-export function MessageList({ messages, chatEndRef }) {
+export function MessageList({ messages, chatEndRef, windowWidth }) {
+    const isMobile = windowWidth < 768;
     const chatAreaStyle = {
         flex: 1,
         overflowY: 'auto',
@@ -8,28 +9,20 @@ export function MessageList({ messages, chatEndRef }) {
         display: 'flex',
         flexDirection: 'column',
         gap: 12,
-        WebkitOverflowScrolling: 'touch', // smooth scroll on iOS
+        WebkitOverflowScrolling: 'touch',
     };
 
-    const userMsgStyle = {
-        alignSelf: 'flex-end',
-        background: '#2d2d2d',
+    const baseMsgStyle = {
         maxWidth: '85%',
         borderRadius: 12,
         padding: '10px 14px',
         wordBreak: 'break-word',
-        fontSize: 15,
+        fontSize: isMobile ? 17 : 15,
+        lineHeight: 1.5,
     };
 
-    const agentMsgStyle = {
-        alignSelf: 'flex-start',
-        background: '#1e1e1e',
-        maxWidth: '85%',
-        borderRadius: 12,
-        padding: '10px 14px',
-        wordBreak: 'break-word',
-        fontSize: 15,
-    };
+    const userMsgStyle = { ...baseMsgStyle, alignSelf: 'flex-end', background: '#2d2d2d' };
+    const agentMsgStyle = { ...baseMsgStyle, alignSelf: 'flex-start', background: '#1e1e1e' };
 
     return React.createElement('div', { style: chatAreaStyle },
         messages.map((m, i) =>
@@ -38,11 +31,13 @@ export function MessageList({ messages, chatEndRef }) {
                 style: m.role === 'user' ? userMsgStyle : agentMsgStyle,
             },
                 React.createElement('div', {
-                    style: { fontSize: 11, color: '#aaa', marginBottom: 4 }
+                    style: {
+                        fontSize: isMobile ? 13 : 11,
+                        color: '#aaa',
+                        marginBottom: 4,
+                    }
                 }, m.role === 'user' ? 'You' : 'Agent'),
-                React.createElement('div', {
-                    style: { whiteSpace: 'pre-wrap', lineHeight: 1.4 }
-                }, m.content)
+                React.createElement('div', { style: { whiteSpace: 'pre-wrap' } }, m.content)
             )
         ),
         React.createElement('div', { ref: chatEndRef })
