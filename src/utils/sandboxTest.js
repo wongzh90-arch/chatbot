@@ -70,3 +70,49 @@ export async function testCodeSandbox(code, timeoutMs = 5000) {
         }
     });
 }
+
+/**
+ * Tests that getNotes and setNotes correctly persist text to localStorage.
+ * Returns true if both store and retrieve work as expected, false otherwise.
+ */
+export async function testNotesPersistence() {
+    const { getNotes, setNotes } = await import('./contextBuilder.js');
+    const TEST_KEY = 'user_notes';
+
+    try {
+        // Test 1: Store and retrieve a simple string
+        const testText = 'Hello, notes!';
+        setNotes(testText);
+        const retrieved = getNotes();
+        if (retrieved !== testText) {
+            // Clean up
+            localStorage.removeItem(TEST_KEY);
+            return false;
+        }
+
+        // Test 2: Store and retrieve an empty string
+        setNotes('');
+        const emptyRetrieved = getNotes();
+        if (emptyRetrieved !== '') {
+            localStorage.removeItem(TEST_KEY);
+            return false;
+        }
+
+        // Test 3: Store and retrieve special characters
+        const specialText = 'Notes with \n newlines and "quotes"';
+        setNotes(specialText);
+        const specialRetrieved = getNotes();
+        if (specialRetrieved !== specialText) {
+            localStorage.removeItem(TEST_KEY);
+            return false;
+        }
+
+        // Clean up
+        localStorage.removeItem(TEST_KEY);
+        return true;
+    } catch {
+        // If any operation fails (e.g., localStorage unavailable), return false
+        try { localStorage.removeItem(TEST_KEY); } catch { /* ignore */ }
+        return false;
+    }
+}
