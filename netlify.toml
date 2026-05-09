@@ -21,6 +21,11 @@
   function = "executor-proxy"
   path = "/.netlify/functions/executor-proxy/*"
 
+# NEW
+[[edge_functions]]
+  function = "github-token-proxy"
+  path = "/.netlify/functions/github-token"
+
 [[headers]]
   for = "/*"
   [headers.values]
