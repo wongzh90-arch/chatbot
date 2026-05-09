@@ -1,6 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { SimpleChat } from './components/SimpleChat.jsx';
+import { SimpleChat } from './components/SimpleChat.js';
 import { useWorkspaceStore } from './stores/workspaceStore.js';
 import { useProviderStore } from './stores/providerStore.js';
 import { GitHubService } from './services/github.js';
@@ -11,7 +11,6 @@ import { processAgentSkills } from './utils/agentSkills.js';
 import { SmokeTest } from './services/smokeTest.js';
 import { SelfImprover } from './core/SelfImprover.js';
 
-// Expose services to the UI (via props, not globals)
 const services = {
     github: GitHubService,
     llm: LLMProvider,
@@ -36,4 +35,4 @@ const services = {
 };
 
 const root = createRoot(document.getElementById('root'));
-root.render(<SimpleChat services={services} />);
+root.render(React.createElement(SimpleChat, { services: services }));
