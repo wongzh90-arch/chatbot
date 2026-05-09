@@ -3,178 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Claude Code Web – Solo Edition</title>
-
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-
-    <!-- React 18 -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-
-    <!-- Babel Standalone -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
+    <title>Self‑Recursive Bot</title>
     <style>
-        body { margin: 0; }
-        #login-gate {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            background: #0a0a0a;
-            color: #eee;
-            font-family: system-ui, sans-serif;
-        }
-        #login-gate.hidden { display: none; }
-        #login-gate form {
-            background: #1a1a1a;
-            padding: 2rem;
-            border-radius: 12px;
-            text-align: center;
-            border: 1px solid #2a2a2a;
-            min-width: 280px;
-        }
-        #login-gate h2 { margin: 0 0 0.5rem; font-size: 1.1rem; color: #f59e0b; }
-        #login-gate input {
-            width: 100%;
-            padding: 0.6rem 0.75rem;
-            margin: 0.5rem 0;
-            border: 1px solid #333;
-            background: #111;
-            color: #eee;
-            border-radius: 8px;
-            font-size: 0.9rem;
-            box-sizing: border-box;
-            outline: none;
-        }
-        #login-gate input:focus { border-color: #f59e0b; }
-        #login-gate button {
-            width: 100%;
-            padding: 0.6rem;
-            margin-top: 0.5rem;
-            background: #f59e0b;
-            border: none;
-            color: #000;
-            font-weight: bold;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 0.9rem;
-        }
-        #login-gate button:hover { background: #fbbf24; }
-
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #52525b; }
-
-        @keyframes bounce {
-            0%, 80%, 100% { transform: translateY(0); }
-            40% { transform: translateY(-5px); }
-        }
-        .animate-bounce { animation: bounce 1s infinite; }
-
-        .line-clamp-2 {
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: #0a0a0a; color: #e5e5e5; }
+        #root { height: 100vh; display: flex; flex-direction: column; }
     </style>
-</head>
-<body>
-
-    <!-- Login gate -->
-    <div id="login-gate">
-        <form onsubmit="return false;">
-            <h2>🔐 Access Required</h2>
-            <input type="password" id="gate-password" placeholder="Enter password" autofocus />
-            <button onclick="checkPassword()">Enter</button>
-        </form>
-    </div>
-
-    <!-- React mounts here -->
-    <div id="root" style="display:none; height:100vh;"></div>
-
-    <!-- ── Utilities (no dependencies) ── -->
-    <script src="js/utils/markdown.js"></script>
-    <script src="js/utils/ThemeContext.js"></script>
-    <script src="js/utils/agentSkills.js"></script>
-    <script src="js/utils/commands.js"></script>
-    <script src="js/utils/contextMatcher.js"></script>
-    <script src="js/utils/intentDetector.js"></script>
-    <script src="js/utils/sanityCheck.js"></script>
-    <script src="js/utils/manifestParser.js"></script>
-    <script src="js/utils/diffUtils.js"></script>
-    <script src="js/utils/contextBuilder.js"></script>
-    <script type="text/babel" src="js/utils/ErrorBoundary.jsx"></script>
-
-
-    <!-- ── Services (depend on utilities) ── -->
-    <script src="js/services/github.js"></script>
-    <script src="js/services/llmProvider.js"></script>
-    <script src="js/services/modelRegistry.js"></script>
-    <script src="js/services/openrouter.js"></script>
-    <script src="js/services/taskManager.js"></script>
-    <script src="js/services/webSearch.js"></script>
-    <script src="js/services/docSearch.js"></script>
-    <script src="js/services/executorApi.js"></script>
-    <script src="js/services/smokeTest.js"></script>
-    <script src="js/services/conversationMemory.js"></script>
-    <script src="js/services/taskQueue.js"></script>
-
-    <!-- ── Agents (depend on services) ── -->
-    <script src="js/agents/clarifier.js"></script>
-    <script src="js/agents/planner.js"></script>
-    <script src="js/agents/executor.js"></script>
-    <script src="js/agents/reviewer.js"></script>
-    <script src="js/agents/orchestrator.js"></script>
-
-    <!-- ── State hooks (no React dependencies, plain JS) ── -->
-    <script src="js/state/useProviderState.js"></script>
-    <script src="js/state/useWorkspaceState.js"></script>
-    <script src="js/state/useConversationState.js"></script>
-    <script src="js/state/useGitHubActions.js"></script>
-
-    <!-- ── Command handler (depends on state hooks + agents) ── -->
-    <script src="js/handlers/useCommandHandler.js"></script>
-
-    <!-- ── Components (depend on services + utilities) ── -->
-    <script type="text/babel" src="js/components/Navbar.jsx"></script>
-    <script type="text/babel" src="js/components/LeftPane.jsx"></script>
-    <script type="text/babel" src="js/components/ChatPane.jsx"></script>
-
-    <!-- ── Main app ── -->
-    <script type="text/babel" src="js/app.jsx"></script>
-
-    <!-- ── Login gate logic ── -->
-    <script>
-        var GATE_PASSWORD_HASH = 'c1366f39d8847f3659cdd75c4d9d4fe3f3c0f77782ffe2c41c995e844d68521f';
-
-        async function hashPassword(input) {
-            const encoder = new TextEncoder();
-            const data = encoder.encode(input);
-            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-            const hashArray = Array.from(new Uint8Array(hashBuffer));
-            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-        }
-
-        async function checkPassword() {
-            var input = document.getElementById('gate-password').value;
-            var hashed = await hashPassword(input);
-            if (hashed === GATE_PASSWORD_HASH) {
-                document.getElementById('login-gate').classList.add('hidden');
-                document.getElementById('root').style.display = '';
-            } else {
-                document.getElementById('gate-password').value = '';
-                document.getElementById('gate-password').placeholder = 'Wrong password, try again';
+    <script type="importmap">
+        {
+            "imports": {
+                "react": "https://esm.sh/react@18",
+                "react-dom/client": "https://esm.sh/react-dom@18/client",
+                "zustand": "https://esm.sh/zustand@4"
             }
         }
-
-        document.getElementById('gate-password').addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') checkPassword();
-        });
     </script>
-
+</head>
+<body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>
