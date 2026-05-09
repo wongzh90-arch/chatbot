@@ -1,8 +1,6 @@
-import * as React from 'react';
+import { useState, useRef, useEffect, createElement } from 'react';
 import { useWorkspaceStore } from '../stores/workspaceStore.js';
 import { useProviderStore } from '../stores/providerStore.js';
-
-const { useState, useRef, useEffect } = React;
 
 export function SimpleChat({ services }) {
     const [messages, setMessages] = useState([
@@ -74,39 +72,39 @@ export function SimpleChat({ services }) {
     const userMsgStyle = { alignSelf: 'flex-end', background: '#2d2d2d', maxWidth: '80%', borderRadius: 12, padding: '8px 12px' };
     const agentMsgStyle = { alignSelf: 'flex-start', background: '#1e1e1e', maxWidth: '80%', borderRadius: 12, padding: '8px 12px' };
 
-    return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', height: '100vh', background: '#0a0a0a', color: '#e5e5e5' } },
+    return createElement('div', { style: { display: 'flex', flexDirection: 'column', height: '100vh', background: '#0a0a0a', color: '#e5e5e5' } },
         // --- Header ---
-        React.createElement('div', { style: headerStyle },
-            React.createElement('strong', { style: { color: '#f59e0b' } }, 'Self‑Recursive Bot'),
-            React.createElement('input', { placeholder: 'owner/repo', value: workspace.currentRepo, onChange: e => workspace.setCurrentRepo(e.target.value), style: inputStyle }),
-            React.createElement('input', { placeholder: 'branch', value: workspace.currentBranch, onChange: e => workspace.setCurrentBranch(e.target.value), style: inputStyle }),
-            React.createElement('input', { type: 'password', placeholder: 'GitHub PAT', value: workspace.githubToken, onChange: e => workspace.setGithubToken(e.target.value), style: inputStyle }),
-            React.createElement('button', { onClick: () => provider.setProvider(provider.provider === 'deepseek' ? 'openrouter' : 'deepseek'), style: buttonStyle }, provider.provider),
-            isRunning && React.createElement('span', { style: { color: '#f59e0b' } }, '⚙️ Running...')
+        createElement('div', { style: headerStyle },
+            createElement('strong', { style: { color: '#f59e0b' } }, 'Self‑Recursive Bot'),
+            createElement('input', { placeholder: 'owner/repo', value: workspace.currentRepo, onChange: e => workspace.setCurrentRepo(e.target.value), style: inputStyle }),
+            createElement('input', { placeholder: 'branch', value: workspace.currentBranch, onChange: e => workspace.setCurrentBranch(e.target.value), style: inputStyle }),
+            createElement('input', { type: 'password', placeholder: 'GitHub PAT', value: workspace.githubToken, onChange: e => workspace.setGithubToken(e.target.value), style: inputStyle }),
+            createElement('button', { onClick: () => provider.setProvider(provider.provider === 'deepseek' ? 'openrouter' : 'deepseek'), style: buttonStyle }, provider.provider),
+            isRunning && createElement('span', { style: { color: '#f59e0b' } }, '⚙️ Running...')
         ),
         // --- Messages ---
-        React.createElement('div', { style: chatAreaStyle },
+        createElement('div', { style: chatAreaStyle },
             messages.map((m, i) =>
-                React.createElement('div', { key: i, style: m.role === 'user' ? userMsgStyle : agentMsgStyle },
-                    React.createElement('div', { style: { fontSize: 12, color: '#aaa', marginBottom: 4 } }, m.role === 'user' ? 'You' : 'Agent'),
-                    React.createElement('div', { style: { whiteSpace: 'pre-wrap' } }, m.content)
+                createElement('div', { key: i, style: m.role === 'user' ? userMsgStyle : agentMsgStyle },
+                    createElement('div', { style: { fontSize: 12, color: '#aaa', marginBottom: 4 } }, m.role === 'user' ? 'You' : 'Agent'),
+                    createElement('div', { style: { whiteSpace: 'pre-wrap' } }, m.content)
                 )
             ),
-            React.createElement('div', { ref: chatEndRef })
+            createElement('div', { ref: chatEndRef })
         ),
         // --- Task list ---
-        tasks.length > 0 && React.createElement('div', { style: { borderTop: '1px solid #222', background: '#111', padding: '8px 12px', maxHeight: 150, overflowY: 'auto' } },
-            React.createElement('div', { style: { fontWeight: 'bold', fontSize: 12, marginBottom: 6 } }, '📋 Tasks'),
+        tasks.length > 0 && createElement('div', { style: { borderTop: '1px solid #222', background: '#111', padding: '8px 12px', maxHeight: 150, overflowY: 'auto' } },
+            createElement('div', { style: { fontWeight: 'bold', fontSize: 12, marginBottom: 6 } }, '📋 Tasks'),
             tasks.map(t =>
-                React.createElement('div', { key: t.id, style: { fontSize: 12, display: 'flex', gap: 8, padding: '2px 0' } },
-                    React.createElement('span', { style: { width: 80, color: t.status === 'DONE' ? '#4ade80' : t.status === 'FAILED' ? '#f87171' : '#fbbf24' } }, t.status),
-                    React.createElement('span', null, t.title)
+                createElement('div', { key: t.id, style: { fontSize: 12, display: 'flex', gap: 8, padding: '2px 0' } },
+                    createElement('span', { style: { width: 80, color: t.status === 'DONE' ? '#4ade80' : t.status === 'FAILED' ? '#f87171' : '#fbbf24' } }, t.status),
+                    createElement('span', null, t.title)
                 )
             )
         ),
         // --- Input bar ---
-        React.createElement('div', { style: { borderTop: '1px solid #222', padding: '12px', display: 'flex', gap: 8 } },
-            React.createElement('input', {
+        createElement('div', { style: { borderTop: '1px solid #222', padding: '12px', display: 'flex', gap: 8 } },
+            createElement('input', {
                 type: 'text',
                 value: input,
                 onChange: e => setInput(e.target.value),
@@ -119,10 +117,10 @@ export function SimpleChat({ services }) {
                 placeholder: "/self-improve 'add a comment'",
                 style: { flex: 1, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, padding: '8px 12px', color: 'white' }
             }),
-            React.createElement('button', { onClick: handleSend, style: { background: '#f59e0b', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 'bold', cursor: 'pointer' } }, 'Send')
+            createElement('button', { onClick: handleSend, style: { background: '#f59e0b', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 'bold', cursor: 'pointer' } }, 'Send')
         ),
         // --- Toast ---
-        toast && React.createElement('div', {
+        toast && createElement('div', {
             style: {
                 position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)',
                 background: '#222', border: `1px solid ${toast.type === 'error' ? '#f87171' : '#4ade80'}`,
