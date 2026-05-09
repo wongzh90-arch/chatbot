@@ -1,4 +1,3 @@
-// netlify/edge-functions/firecrawl-proxy.js
 export default async (request) => {
   if (request.method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405 });
@@ -9,44 +8,7 @@ export default async (request) => {
     return new Response('Server misconfigured: missing Firecrawl API key', { status: 500 });
   }
 
-  const url = new URL(request.url);
-  const path = url.pathname;
-
   try {
-    // ---- Scrape endpoint (when path ends with /scrape) ----
-    if (path === '/scrape') {
-      const { url: pageUrl } = await request.json();
-      if (!pageUrl) {
-        return new Response(JSON.stringify({ error: 'Missing url' }), { status: 400 });
-      }
-
-      const scrapeRes = await fetch('https://api.firecrawl.dev/v1/scrape', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url: pageUrl, formats: ['markdown'] }),
-      });
-
-      const data = await scrapeRes.json();
-      if (!scrapeRes.ok) {
-        return new Response(JSON.stringify({ error: data }), {
-          status: scrapeRes.status,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      const markdown = data.data?.markdown || '';
-      // limit to 10k chars to avoid token bloat
-      const truncated = markdown.slice(0, 10000);
-      return new Response(JSON.stringify({ content: truncated, url: pageUrl }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    // ---- Search endpoint (default) ----
     const { query, count = 5 } = await request.json();
 
     const response = await fetch('https://api.firecrawl.dev/v1/search', {
