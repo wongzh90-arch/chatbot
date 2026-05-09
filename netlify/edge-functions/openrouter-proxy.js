@@ -10,7 +10,11 @@ export default async (request) => {
 
   try {
     const requestBody = await request.json();
-    requestBody.stream = true;
+    
+    // Respect the client's stream setting; default to true only if not specified
+    if (requestBody.stream === undefined) {
+      requestBody.stream = true;
+    }
 
     const upstreamRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -31,15 +35,24 @@ export default async (request) => {
       });
     }
 
-    return new Response(upstreamRes.body, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'X-Accel-Buffering': 'no',
-      },
-    });
+    // If streaming, return SSE; otherwise return plain JSON
+    if (requestBody.stream) {
+      return new Response(upstreamRes.body, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no',
+        },
+      });
+    } else {
+      const data = await upstreamRes.json();
+      return new Response(JSON.stringify(data), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
   } catch (error) {
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
