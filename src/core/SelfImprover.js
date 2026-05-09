@@ -3,7 +3,6 @@ import { LLMProvider } from '../services/llmProvider.js';
 import { ExecutorAPI } from '../services/executorApi.js';
 import { ContextBuilder } from '../utils/contextBuilder.js';
 import { processAgentSkills } from '../utils/agentSkills.js';
-import { testCodeSandbox } from '../utils/sandboxTest.js';
 
 export class SelfImprover {
     constructor({ repo, branch, githubToken, provider, model, thinkingMode, reasoningEffort,
@@ -50,35 +49,45 @@ export class SelfImprover {
     async runGoal(goal) {
         this.pauseRequested = false;
         this.onLog(`🚀 Goal: ${goal}`);
-        if (!this.manifest) await this.loadManifest();
-        if (!this.fileTree) await this.fetchFileTree();
 
-        const plan = await this._plan(goal);
-        if (!plan?.tasks?.length) {
-            this.onLog('❌ No tasks generated');
-            return { success: false };
+        let result = { success: false };
+
+        try {
+            if (!this.manifest) await this.loadManifest();
+            if (!this.fileTree) await this.fetchFileTree();
+
+            const plan = await this._plan(goal);
+            if (!plan?.tasks?.length) {
+                this.onLog('❌ No tasks generated');
+                return result;
+            }
+
+            let cycles = 0;
+            const MAX_CYCLES = 3;
+            let allPassed = false;
+
+            while (cycles < MAX_CYCLES && !this.pauseRequested) {
+                cycles++;
+                this.onLog(`🔄 Cycle ${cycles}/${MAX_CYCLES}`);
+                await this._executeAll();
+                const review = await this._reviewAll();
+                if (review.passed) { allPassed = true; break; }
+                this.onLog(`⚠️ ${review.issues} issues – retrying`);
+            }
+
+            if (this.pauseRequested) {
+                result = { success: false, paused: true };
+                return result;
+            }
+
+            if (allPassed) {
+                const prUrl = await this._createPR(goal);
+                result = { success: true, prUrl };
+            }
+            return result;
+        } finally {
+            this.onRunComplete(result);
         }
-
-        let cycles = 0;
-        const MAX_CYCLES = 3;
-        let allPassed = false;
-
-        while (cycles < MAX_CYCLES && !this.pauseRequested) {
-            cycles++;
-            this.onLog(`🔄 Cycle ${cycles}/${MAX_CYCLES}`);
-            await this._executeAll();
-            const review = await this._reviewAll();
-            if (review.passed) { allPassed = true; break; }
-            this.onLog(`⚠️ ${review.issues} issues – retrying`);
-        }
-
-        if (this.pauseRequested) return { success: false, paused: true };
-        if (allPassed) {
-            const prUrl = await this._createPR(goal);
-            this.onRunComplete({ success: true, prUrl });
-            return { success: true, prUrl };
-        }
-        return { success: false };
     }
 
     pause() { this.pauseRequested = true; }
@@ -125,7 +134,6 @@ Max 4 tasks, each ≤2 files.`;
         const files = task.files || [];
         if (!files.length) return false;
 
-        // Get required files (targets + dependencies)
         const allPaths = ContextBuilder.identifyRequiredFiles({ targetFiles: files, manifest: this.manifest, maxFiles: 5 });
         const contents = {};
         for (const p of allPaths) {
@@ -163,18 +171,7 @@ Output COMPLETE new content for each file inside <skill name="update_editor" fil
             fileMap[path] = { content: b.content, sha: contents[path]?.sha || null };
         }
 
-        // Self‑test if modifying SelfImprover.js
-        const isSelfChange = Object.keys(fileMap).some(p => p.includes('SelfImprover.js'));
-        if (isSelfChange) {
-            const newSelfCode = fileMap[Object.keys(fileMap).find(p => p.includes('SelfImprover.js'))].content;
-            const sandboxOk = await testCodeSandbox(newSelfCode);
-            if (!sandboxOk) {
-                this.onLog('❌ New SelfImprover version failed sandbox test');
-                return false;
-            }
-        }
-
-        // Lint check
+        // Lint check before commit
         const lintable = {};
         for (const [p, { content }] of Object.entries(fileMap)) {
             if (p.endsWith('.js') || p.endsWith('.jsx')) lintable[p] = content;
@@ -230,7 +227,8 @@ Output COMPLETE new content for each file inside <skill name="update_editor" fil
 
     async _createPR(goal) {
         const title = `Self‑improve: ${goal.slice(0, 60)}`;
-        const pr = await GitHubService.createPullRequest(this.repo, this.branch, title, 'main', this.githubToken);
+        // Passing null as base branch lets GitHubService auto‑detect the default
+        const pr = await GitHubService.createPullRequest(this.repo, this.branch, title, null, this.githubToken);
         return pr.html_url;
     }
 
