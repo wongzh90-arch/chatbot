@@ -11,7 +11,7 @@ export function MessageList({ messages, chatEndRef }) {
                 React.createElement('div', { style: { fontSize: 12, color: '#aaa', marginBottom: 4 } },
                     m.role === 'user' ? 'You' : 'Agent'
                 ),
-                React.createElement('div', { style: { whiteSpace: 'pre-wrap' } }, m.content)
+                React.createElement('div', { style: { whiteSpace: 'pre-wrap', fontSize: '14px' } }, m.content)
             )
         ),
         React.createElement('div', { ref: chatEndRef })
