@@ -18,7 +18,7 @@ const services = {
     contextBuilder: ContextBuilder,
     agentSkills: processAgentSkills,
     smokeTest: SmokeTest,
-    createImprover: (callbacks) => {
+    createImprover: ({ netlitySiteName, onLog, onTaskUpdate, onRunComplete, onClarificationNeeded }) => {
         const { currentRepo, currentBranch, githubToken } = useWorkspaceStore.getState();
         const { provider, selectedModel, thinkingMode, reasoningEffort } = useProviderStore.getState();
         return new SelfImprover({
@@ -29,10 +29,14 @@ const services = {
             model: selectedModel,
             thinkingMode,
             reasoningEffort,
-            ...callbacks
+            netlitySiteName: netlitySiteName || '',
+            onLog,
+            onTaskUpdate,
+            onRunComplete,
+            onClarificationNeeded,
         });
     }
 };
 
 const root = createRoot(document.getElementById('root'));
-root.render(React.createElement(SimpleChat, { services: services }));
+root.render(React.createElement(SimpleChat, { services }));
