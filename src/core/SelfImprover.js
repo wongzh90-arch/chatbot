@@ -23,6 +23,7 @@ export class SelfImprover {
         this.fileTree = null;
         this.pauseRequested = false;
         this.taskQueue = null;
+        this.currentGoal = null; // stored for the reviewer
     }
 
     async healthCheck() {
@@ -73,7 +74,6 @@ export class SelfImprover {
     }
 
     async loadManifest() {
-        // Retained for backward compatibility – now calls internal helper
         await this._ensureManifest();
     }
 
@@ -84,13 +84,14 @@ export class SelfImprover {
     }
 
     async runGoal(goal) {
+        this.currentGoal = goal;                      // ← store for reviewer
         this.pauseRequested = false;
         this.onLog(`🚀 Goal: ${goal}`);
 
         let result = { success: false };
 
         try {
-            await this._ensureManifest();   // ← will build if missing
+            await this._ensureManifest();
             if (!this.fileTree) await this.fetchFileTree();
 
             const plan = await this._plan(goal);
@@ -143,6 +144,7 @@ export class SelfImprover {
             relatedContents: [],
             manifest: this.manifest
         });
+
         const prompt = `Create a plan for: "${goal}"
 Repo: ${this.repo}, branch: ${this.branch}
 Key files: ${relevant.join(', ')}
@@ -294,6 +296,9 @@ Output COMPLETE new content for each file inside
         }
     }
 
+    // ----------------------------------------------------------------
+    // SMART REVIEWER (now uses the stored goal and logs the verdict)
+    // ----------------------------------------------------------------
     async _reviewAll() {
         const done = this._getDoneTasks();
         if (!done.length) return { passed: true };
@@ -301,8 +306,9 @@ Output COMPLETE new content for each file inside
         let issues = 0;
         for (const t of done) {
             const passed = await this._reviewTask(t);
-            if (passed) this._markTaskReviewPassed(t.id);
-            else {
+            if (passed) {
+                this._markTaskReviewPassed(t.id);
+            } else {
                 issues++;
                 this._markTaskTodo(t.id);
             }
@@ -311,6 +317,7 @@ Output COMPLETE new content for each file inside
     }
 
     async _reviewTask(task) {
+        const goal = this.currentGoal || 'the user request';
         const files = task.files || [];
         const contents = {};
         for (const p of files) {
@@ -323,20 +330,32 @@ Output COMPLETE new content for each file inside
                 contents[p] = '[unavailable]';
             }
         }
-        const prompt = `Review task "${task.title}". Implementation:
-${Object.entries(contents)
-    .map(([p, c]) => `--- ${p} ---\n${c}`)
-    .join('\n\n')}
-Reply exactly "PASS" or "ISSUES: <list>"`;
+
+        const prompt = `Review the following implementation against the original request.
+Goal: "${goal}"
+Task: "${task.title}"
+Task description: ${task.description}
+Implementation:
+${Object.entries(contents).map(([p, c]) => `--- ${p} ---\n${c}`).join('\n\n')}
+Does this implementation satisfy the goal? Check specifically:
+- Have the correct UI elements been changed?
+- Does the code do what the task description asked for?
+- Are there any obvious errors?
+Reply exactly "PASS" if the task is correctly implemented. If not, reply "ISSUES:" followed by a short description of what is wrong.`;
+
         const reply = await LLMProvider.chatCompletion({
             provider: this.provider,
             model: this.model,
             messages: [],
-            systemPrompt: 'You are a strict reviewer. Reply PASS or ISSUES.',
+            systemPrompt: 'You are a helpful code reviewer. Be fair and contextual.',
             userContent: prompt,
             thinkingMode: false
         });
-        return reply.content.trim().toUpperCase().startsWith('PASS');
+
+        const verdict = reply.content.trim();
+        this.onLog(`Review of "${task.title}": ${verdict}`);
+
+        return verdict.toUpperCase().startsWith('PASS');
     }
 
     async _createPR(goal) {
@@ -351,7 +370,7 @@ Reply exactly "PASS" or "ISSUES: <list>"`;
         return pr.html_url;
     }
 
-    // --- Task queue helpers (unchanged) ---
+    // --- Task queue helpers ---
     _initTaskQueue(tasks) {
         this.taskQueue = { tasks: [], nextId: 1 };
         for (const t of tasks) {
