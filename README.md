@@ -53,7 +53,7 @@ Railway (Node.js)
 ### Netlify
 | Variable | Description |
 |---|---|
-| `RAILWAY_API_URL` | Your Railway service URL, e.g. `https://chatbot-production-72a9.up.railway.app` |
+| `RAILWAY_API_URL` | Your Railway service URL |
 | `RAILWAY_AUTH_TOKEN` | Shared secret matching Railway's `RAILWAY_AUTH_TOKEN` |
 | `DEEPSEEK_API_KEY` | DeepSeek API key |
 | `OPENROUTER_API_KEY` | OpenRouter API key |
