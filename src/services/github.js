@@ -1,4 +1,3 @@
-// GitHubService as ES module
 export class GitHubService {
     static headers(token) {
         return {
@@ -19,8 +18,11 @@ export class GitHubService {
         const res = await fetch(`https://api.github.com/repos/${repo}/contents/${path}?ref=${branch}`, { headers: this.headers(token) });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        const decoded = atob(data.content);
-        return { content: decodeURIComponent(escape(decoded)), sha: data.sha };
+        // Proper UTF‑8 decoding
+        const binary = atob(data.content);
+        const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+        const content = new TextDecoder('utf-8').decode(bytes);
+        return { content, sha: data.sha };
     }
 
     static async commitMultipleFiles(repo, branch, fileMap, message, token) {
@@ -59,9 +61,16 @@ export class GitHubService {
     }
 
     static async createPullRequest(repo, headBranch, title, baseBranch, token) {
-        const base = baseBranch || (await (await fetch(`https://api.github.com/repos/${repo}`, { headers: this.headers(token) })).json()).default_branch;
+        // Auto‑detect default branch if baseBranch is null/undefined
+        let base = baseBranch;
+        if (!base) {
+            const repoInfo = await fetch(`https://api.github.com/repos/${repo}`, { headers: this.headers(token) });
+            const info = await repoInfo.json();
+            base = info.default_branch || 'main';
+        }
         const res = await fetch(`https://api.github.com/repos/${repo}/pulls`, {
-            method: 'POST', headers: this.headers(token),
+            method: 'POST',
+            headers: this.headers(token),
             body: JSON.stringify({ title, head: headBranch, base, draft: false })
         });
         if (!res.ok) throw new Error(`PR creation failed: ${await res.text()}`);
