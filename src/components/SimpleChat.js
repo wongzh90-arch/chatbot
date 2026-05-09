@@ -1,6 +1,8 @@
-import { useState, useRef, useEffect, createElement } from 'react';
+import React from 'react';
 import { useWorkspaceStore } from '../stores/workspaceStore.js';
 import { useProviderStore } from '../stores/providerStore.js';
+
+const { useState, useRef, useEffect, createElement } = React;
 
 export function SimpleChat({ services }) {
     const [messages, setMessages] = useState([
