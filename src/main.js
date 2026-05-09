@@ -1,4 +1,4 @@
-import * as React from 'react';
+import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { SimpleChat } from './components/SimpleChat.js';
 import { useWorkspaceStore } from './stores/workspaceStore.js';
@@ -35,4 +35,4 @@ const services = {
 };
 
 const root = createRoot(document.getElementById('root'));
-root.render(React.createElement(SimpleChat, { services: services }));
+root.render(createElement(SimpleChat, { services: services }));
