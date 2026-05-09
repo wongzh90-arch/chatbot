@@ -1,4 +1,19 @@
 export async function testCodeSandbox(code, timeoutMs = 5000) {
+    // Pre-load all modules before entering the Promise executor
+    const [
+        { GitHubService },
+        { LLMProvider },
+        { ExecutorAPI },
+        { ContextBuilder },
+        { processAgentSkills }
+    ] = await Promise.all([
+        import('../services/github.js'),
+        import('../services/llmProvider.js'),
+        import('../services/executorApi.js'),
+        import('./contextBuilder.js'),
+        import('./agentSkills.js')
+    ]);
+
     return new Promise((resolve) => {
         const iframe = document.createElement('iframe');
         iframe.style.display = 'none';
@@ -6,27 +21,27 @@ export async function testCodeSandbox(code, timeoutMs = 5000) {
         document.body.appendChild(iframe);
         const win = iframe.contentWindow;
 
-        // Copy essential dependencies into iframe (they are ES modules, but we copy the class references)
-        // Note: we need to re-export them into the iframe's global scope.
-        // Since they are classes, we can just assign them.
-        // However they might rely on fetch – fetch is global.
-        win.GitHubService = (await import('../services/github.js')).GitHubService;
-        win.LLMProvider = (await import('../services/llmProvider.js')).LLMProvider;
-        win.ExecutorAPI = (await import('../services/executorApi.js')).ExecutorAPI;
-        win.ContextBuilder = (await import('./contextBuilder.js')).ContextBuilder;
-        win.processAgentSkills = (await import('./agentSkills.js')).processAgentSkills;
+        win.GitHubService = GitHubService;
+        win.LLMProvider = LLMProvider;
+        win.ExecutorAPI = ExecutorAPI;
+        win.ContextBuilder = ContextBuilder;
+        win.processAgentSkills = processAgentSkills;
         win.fetch = fetch;
         win.atob = atob;
         win.btoa = btoa;
 
-        let timer = setTimeout(() => {
-            document.body.removeChild(iframe);
+        const cleanup = () => {
+            if (document.body.contains(iframe)) document.body.removeChild(iframe);
+        };
+
+        const timer = setTimeout(() => {
+            cleanup();
             resolve(false);
         }, timeoutMs);
 
-        win.addEventListener('error', (e) => {
+        win.addEventListener('error', () => {
             clearTimeout(timer);
-            document.body.removeChild(iframe);
+            cleanup();
             resolve(false);
         });
 
@@ -36,16 +51,21 @@ export async function testCodeSandbox(code, timeoutMs = 5000) {
             if (!TestImprover) throw new Error('SelfImprover not found');
             const testInstance = new TestImprover({
                 repo: 'test/repo', branch: 'main', githubToken: 'dummy',
-                provider: 'deepseek', model: 'test', onLog: () => {}, onTaskUpdate: () => {}, onRunComplete: () => {}
+                provider: 'deepseek', model: 'test',
+                onLog: () => {}, onTaskUpdate: () => {}, onRunComplete: () => {}
             });
-            const health = testInstance.healthCheck ? await testInstance.healthCheck() : 'ok';
-            if (health !== 'ok') throw new Error('Health check failed');
+            testInstance.healthCheck().then(health => {
+                clearTimeout(timer);
+                cleanup();
+                resolve(health === 'ok');
+            }).catch(() => {
+                clearTimeout(timer);
+                cleanup();
+                resolve(false);
+            });
+        } catch {
             clearTimeout(timer);
-            document.body.removeChild(iframe);
-            resolve(true);
-        } catch (err) {
-            clearTimeout(timer);
-            document.body.removeChild(iframe);
+            cleanup();
             resolve(false);
         }
     });
