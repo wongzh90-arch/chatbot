@@ -1,6 +1,72 @@
 import { GitHubService } from '../services/github.js';
 import { LLMProvider } from '../services/llmProvider.js';
 
+let commands = [];
+
+function levenshtein(a, b) {
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++) {
+        matrix[i] = [i];
+    }
+    for (let j = 0; j <= a.length; j++) {
+        matrix[0][j] = j;
+    }
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b[i-1] === a[j-1]) {
+                matrix[i][j] = matrix[i-1][j-1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i-1][j-1] + 1,
+                    matrix[i][j-1] + 1,
+                    matrix[i-1][j] + 1
+                );
+            }
+        }
+    }
+    return matrix[b.length][a.length];
+}
+
+export function indexSlashCommands(cmdList) {
+    commands = cmdList;
+}
+
+export function getBestMatch(input) {
+    if (!input || commands.length === 0) return { command: null, score: 0 };
+
+    let best = null;
+    let bestScore = -1;
+
+    for (const cmd of commands) {
+        const name = cmd.name || cmd;
+        if (!name) continue;
+        const lowerInput = input.toLowerCase();
+        const lowerName = name.toLowerCase();
+        let score;
+
+        // Exact match
+        if (lowerInput === lowerName) {
+            score = 1.0;
+        // Prefix match (input is prefix of name)
+        } else if (lowerName.startsWith(lowerInput)) {
+            score = 0.8 + (lowerInput.length / lowerName.length) * 0.15;
+        // Fuzzy via Levenshtein
+        } else {
+            const dist = levenshtein(lowerInput, lowerName);
+            const maxLen = Math.max(lowerInput.length, lowerName.length);
+            // Normalize distance to a score (0..0.7). Lower distance -> higher score.
+            score = Math.max(0, 0.7 - (dist / maxLen) * 0.7);
+        }
+
+        if (score > bestScore) {
+            bestScore = score;
+            best = cmd;
+        }
+    }
+
+    return { command: best, score: bestScore };
+}
+
 export async function buildKeywordIndex(ctx) {
     ctx.onLog('📂 Reading all scannable files...');
 
