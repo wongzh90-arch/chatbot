@@ -1,6 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import * as React from 'react';
 import { useWorkspaceStore } from '../stores/workspaceStore.js';
 import { useProviderStore } from '../stores/providerStore.js';
+
+const { useState, useRef, useEffect } = React;
 
 export function SimpleChat({ services }) {
     const [messages, setMessages] = useState([
@@ -64,20 +66,16 @@ export function SimpleChat({ services }) {
         addMessage('assistant', 'Please use a slash command. Type /help');
     };
 
+    // ---- Styles ----
     const headerStyle = { padding: '12px 16px', borderBottom: '1px solid #222', display: 'flex', gap: 12, flexWrap: 'wrap' };
     const inputStyle = { background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, padding: '4px 8px' };
     const buttonStyle = { background: '#222', border: 'none', borderRadius: 6, padding: '4px 12px', cursor: 'pointer' };
-
     const chatAreaStyle = { flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: 12 };
-    const messageBase = { maxWidth: '80%', borderRadius: 12, padding: '8px 12px' };
-    const userMsgStyle = { alignSelf: 'flex-end', background: '#2d2d2d', ...messageBase };
-    const agentMsgStyle = { alignSelf: 'flex-start', background: '#1e1e1e', ...messageBase };
-
-    const taskBarStyle = { borderTop: '1px solid #222', background: '#111', padding: '8px 12px', maxHeight: 150, overflowY: 'auto' };
-    const inputBarStyle = { borderTop: '1px solid #222', padding: '12px', display: 'flex', gap: 8 };
+    const userMsgStyle = { alignSelf: 'flex-end', background: '#2d2d2d', maxWidth: '80%', borderRadius: 12, padding: '8px 12px' };
+    const agentMsgStyle = { alignSelf: 'flex-start', background: '#1e1e1e', maxWidth: '80%', borderRadius: 12, padding: '8px 12px' };
 
     return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', height: '100vh', background: '#0a0a0a', color: '#e5e5e5' } },
-        // header
+        // --- Header ---
         React.createElement('div', { style: headerStyle },
             React.createElement('strong', { style: { color: '#f59e0b' } }, 'Self‑Recursive Bot'),
             React.createElement('input', { placeholder: 'owner/repo', value: workspace.currentRepo, onChange: e => workspace.setCurrentRepo(e.target.value), style: inputStyle }),
@@ -86,21 +84,18 @@ export function SimpleChat({ services }) {
             React.createElement('button', { onClick: () => provider.setProvider(provider.provider === 'deepseek' ? 'openrouter' : 'deepseek'), style: buttonStyle }, provider.provider),
             isRunning && React.createElement('span', { style: { color: '#f59e0b' } }, '⚙️ Running...')
         ),
-        // messages
+        // --- Messages ---
         React.createElement('div', { style: chatAreaStyle },
             messages.map((m, i) =>
-                React.createElement('div', {
-                    key: i,
-                    style: m.role === 'user' ? userMsgStyle : agentMsgStyle
-                },
+                React.createElement('div', { key: i, style: m.role === 'user' ? userMsgStyle : agentMsgStyle },
                     React.createElement('div', { style: { fontSize: 12, color: '#aaa', marginBottom: 4 } }, m.role === 'user' ? 'You' : 'Agent'),
                     React.createElement('div', { style: { whiteSpace: 'pre-wrap' } }, m.content)
                 )
             ),
             React.createElement('div', { ref: chatEndRef })
         ),
-        // task list
-        tasks.length > 0 && React.createElement('div', { style: taskBarStyle },
+        // --- Task list ---
+        tasks.length > 0 && React.createElement('div', { style: { borderTop: '1px solid #222', background: '#111', padding: '8px 12px', maxHeight: 150, overflowY: 'auto' } },
             React.createElement('div', { style: { fontWeight: 'bold', fontSize: 12, marginBottom: 6 } }, '📋 Tasks'),
             tasks.map(t =>
                 React.createElement('div', { key: t.id, style: { fontSize: 12, display: 'flex', gap: 8, padding: '2px 0' } },
@@ -109,8 +104,8 @@ export function SimpleChat({ services }) {
                 )
             )
         ),
-        // input bar
-        React.createElement('div', { style: inputBarStyle },
+        // --- Input bar ---
+        React.createElement('div', { style: { borderTop: '1px solid #222', padding: '12px', display: 'flex', gap: 8 } },
             React.createElement('input', {
                 type: 'text',
                 value: input,
@@ -126,7 +121,7 @@ export function SimpleChat({ services }) {
             }),
             React.createElement('button', { onClick: handleSend, style: { background: '#f59e0b', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 'bold', cursor: 'pointer' } }, 'Send')
         ),
-        // toast
+        // --- Toast ---
         toast && React.createElement('div', {
             style: {
                 position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)',
