@@ -38,5 +38,24 @@ const services = {
     }
 };
 
+// Automatically load GitHub token from Netlify env if none is stored locally
+(async () => {
+    const { githubToken, setGithubToken } = useWorkspaceStore.getState();
+    if (!githubToken) {
+        try {
+            const res = await fetch('/.netlify/functions/github-token');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.token) {
+                    setGithubToken(data.token);
+                    console.log('✅ GitHub token loaded from Netlify environment');
+                }
+            }
+        } catch (e) {
+            console.warn('Could not fetch GitHub token from Netlify:', e);
+        }
+    }
+})();
+
 const root = createRoot(document.getElementById('root'));
 root.render(React.createElement(SimpleChat, { services }));
