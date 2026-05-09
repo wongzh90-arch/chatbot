@@ -4,10 +4,12 @@ import { ExecutorAPI } from '../services/executorApi.js';
 import { ContextBuilder } from '../utils/contextBuilder.js';
 import { processAgentSkills } from '../utils/agentSkills.js';
 import { ManifestBuilder } from '../utils/manifestBuilder.js';
+import { SmokeTest } from '../services/smokeTest.js';
 
 export class SelfImprover {
     constructor({ repo, branch, githubToken, provider, model, thinkingMode, reasoningEffort,
-                  onLog, onTaskUpdate, onRunComplete }) {
+                  netlitySiteName,
+                  onLog, onTaskUpdate, onRunComplete, onClarificationNeeded }) {
         this.repo = repo;
         this.branch = branch;
         this.githubToken = githubToken;
@@ -15,15 +17,18 @@ export class SelfImprover {
         this.model = model;
         this.thinkingMode = thinkingMode;
         this.reasoningEffort = reasoningEffort;
+        this.netlitySiteName = netlitySiteName || '';
         this.onLog = onLog || console.log;
         this.onTaskUpdate = onTaskUpdate || (() => {});
         this.onRunComplete = onRunComplete || (() => {});
+        // Called with (questions: string[]) → must return Promise<string> (user's answers)
+        this.onClarificationNeeded = onClarificationNeeded || null;
 
         this.manifest = null;
         this.fileTree = null;
         this.pauseRequested = false;
         this.taskQueue = null;
-        this.currentGoal = null; // stored for the reviewer
+        this.currentGoal = null;
     }
 
     async healthCheck() {
@@ -32,13 +37,58 @@ export class SelfImprover {
         return 'ok';
     }
 
-    /**
-     * Ensure a manifest exists – loads from repo or builds from source.
-     */
+    // ----------------------------------------------------------------
+    // CLARIFICATION FLOW
+    // Ask the LLM to generate clarifying questions, surface them to the
+    // user via onClarificationNeeded, then fold the answers into the goal.
+    // ----------------------------------------------------------------
+    async _runClarification(goal) {
+        if (!this.onClarificationNeeded) return goal;
+
+        this.onLog('🤔 Generating clarifying questions...');
+
+        const prompt = `You are helping an autonomous coding agent understand a user request before it starts making code changes.
+The user's goal is: "${goal}"
+Repository: ${this.repo}, branch: ${this.branch}
+
+Generate 2–4 short, specific clarifying questions that would help the agent avoid mistakes.
+Focus on: scope (which files/components), edge cases, constraints, and success criteria.
+Return ONLY a JSON array of question strings, no preamble.
+Example: ["Which component should be changed?", "Should existing tests be preserved?"]`;
+
+        let questions = [];
+        try {
+            const reply = await LLMProvider.chatCompletion({
+                provider: this.provider,
+                model: this.model,
+                messages: [],
+                systemPrompt: 'You generate clarifying questions. Output only JSON arrays.',
+                userContent: prompt,
+                thinkingMode: false
+            });
+            questions = JSON.parse(reply.content.replace(/```json|```/g, '').trim());
+        } catch (e) {
+            this.onLog(`⚠️ Could not generate clarifying questions: ${e.message}`);
+            return goal;
+        }
+
+        if (!questions.length) return goal;
+
+        // Surface questions to user and wait for their answers
+        const userAnswers = await this.onClarificationNeeded(questions);
+        if (!userAnswers) return goal;
+
+        // Fold answers back into the goal string
+        const enrichedGoal = `${goal}\n\nClarifications from user:\n${userAnswers}`;
+        this.onLog(`✅ Clarification received — enriched goal recorded`);
+        return enrichedGoal;
+    }
+
+    // ----------------------------------------------------------------
+    // MANIFEST
+    // ----------------------------------------------------------------
     async _ensureManifest() {
         if (this.manifest) return;
-
-        // 1. Try loading from repo
         try {
             const { content } = await GitHubService.loadFileContent(
                 this.repo, this.branch, 'manifest.json', this.githubToken
@@ -50,7 +100,6 @@ export class SelfImprover {
             this.onLog('⚠️ No manifest.json – building from source...');
         }
 
-        // 2. Build from all JS/JSX files in the tree
         if (!this.fileTree) await this.fetchFileTree();
 
         const jsPaths = this.fileTree
@@ -64,18 +113,14 @@ export class SelfImprover {
                     this.repo, this.branch, p, this.githubToken
                 );
                 fileContents.push({ path: p, content });
-            } catch {
-                // skip files we can't load (e.g., binary, missing)
-            }
+            } catch { /* skip */ }
         }
 
         this.manifest = ManifestBuilder.buildFromFiles(fileContents);
         this.onLog('✅ Manifest built from source');
     }
 
-    async loadManifest() {
-        await this._ensureManifest();
-    }
+    async loadManifest() { await this._ensureManifest(); }
 
     async fetchFileTree() {
         this.fileTree = await GitHubService.fetchFileTree(this.repo, this.branch, this.githubToken);
@@ -83,23 +128,30 @@ export class SelfImprover {
         return this.fileTree;
     }
 
+    // ----------------------------------------------------------------
+    // MAIN RUN LOOP
+    // ----------------------------------------------------------------
     async runGoal(goal) {
-        this.currentGoal = goal;                      // ← store for reviewer
         this.pauseRequested = false;
-        this.onLog(`🚀 Goal: ${goal}`);
-
         let result = { success: false };
 
         try {
+            // 1. Clarification
+            const enrichedGoal = await this._runClarification(goal);
+            this.currentGoal = enrichedGoal;
+            this.onLog(`🚀 Goal: ${goal}`);
+
             await this._ensureManifest();
             if (!this.fileTree) await this.fetchFileTree();
 
-            const plan = await this._plan(goal);
+            // 2. Plan
+            const plan = await this._plan(enrichedGoal);
             if (!plan?.tasks?.length) {
                 this.onLog('❌ No tasks generated');
                 return result;
             }
 
+            // 3. Execute → Review loop (max 3 cycles)
             let cycles = 0;
             const MAX_CYCLES = 3;
             let allPassed = false;
@@ -109,22 +161,37 @@ export class SelfImprover {
                 this.onLog(`🔄 Cycle ${cycles}/${MAX_CYCLES}`);
                 await this._executeAll();
                 const review = await this._reviewAll();
-                if (review.passed) {
-                    allPassed = true;
-                    break;
-                }
-                this.onLog(`⚠️ ${review.issues} issues – retrying`);
+                if (review.passed) { allPassed = true; break; }
+                this.onLog(`⚠️ ${review.issues} issue(s) found – retrying`);
             }
 
-            if (this.pauseRequested) {
-                result = { success: false, paused: true };
-                return result;
-            }
+            if (this.pauseRequested) return { success: false, paused: true };
 
             if (allPassed) {
                 const prUrl = await this._createPR(goal);
                 result = { success: true, prUrl };
+
+                // 4. Phase 2B — smoke test the deploy preview
+                if (this.netlitySiteName) {
+                    this.onLog('🌐 Waiting for Netlify deploy preview...');
+                    try {
+                        // Extract PR number from URL: .../pull/123
+                        const prNumber = parseInt(prUrl.split('/pull/')[1], 10);
+                        const smoke = await SmokeTest.testDeployPreview(
+                            this.repo, this.branch, this.githubToken, prNumber,
+                            this.netlitySiteName
+                        );
+                        if (smoke.success) {
+                            this.onLog(`✅ Smoke test passed: ${smoke.url}`);
+                        } else {
+                            this.onLog(`⚠️ Smoke test failed: ${smoke.error}`);
+                        }
+                    } catch (e) {
+                        this.onLog(`⚠️ Smoke test error: ${e.message}`);
+                    }
+                }
             }
+
             return result;
         } catch (err) {
             this.onLog(`❌ Run error: ${err.message}`);
@@ -136,13 +203,14 @@ export class SelfImprover {
 
     pause() { this.pauseRequested = true; }
 
+    // ----------------------------------------------------------------
+    // PLAN
+    // ----------------------------------------------------------------
     async _plan(goal) {
         this.onLog('📝 Planning...');
         const relevant = (this.fileTree || []).slice(0, 8).map(f => f.path);
         const context = ContextBuilder.buildContext({
-            targetContents: [],
-            relatedContents: [],
-            manifest: this.manifest
+            targetContents: [], relatedContents: [], manifest: this.manifest
         });
 
         const prompt = `Create a plan for: "${goal}"
@@ -179,6 +247,9 @@ Max 4 tasks, each ≤2 files.`;
         }
     }
 
+    // ----------------------------------------------------------------
+    // EXECUTE
+    // ----------------------------------------------------------------
     async _executeAll() {
         const tasks = this._getPendingTasks();
         for (const t of tasks) {
@@ -196,9 +267,7 @@ Max 4 tasks, each ≤2 files.`;
         if (!files.length) return false;
 
         const allPaths = ContextBuilder.identifyRequiredFiles({
-            targetFiles: files,
-            manifest: this.manifest,
-            maxFiles: 5
+            targetFiles: files, manifest: this.manifest, maxFiles: 5
         });
 
         const contents = {};
@@ -213,18 +282,13 @@ Max 4 tasks, each ≤2 files.`;
             }
         }
 
-        const targetContents = files.map(f => ({
-            path: f,
-            content: contents[f]?.content || ''
-        }));
+        const targetContents = files.map(f => ({ path: f, content: contents[f]?.content || '' }));
         const related = allPaths
             .filter(p => !files.includes(p))
             .map(p => ({ path: p, content: contents[p]?.content || '' }));
 
         const context = ContextBuilder.buildContext({
-            targetContents,
-            relatedContents: related,
-            manifest: this.manifest
+            targetContents, relatedContents: related, manifest: this.manifest
         });
 
         const prompt = `Implement task: ${task.title}
@@ -232,17 +296,16 @@ Description: ${task.description}
 Target files: ${files.join(', ')}
 ${context.contextString}
 Current content:
-${Object.entries(contents)
-    .map(([p, c]) => `--- ${p} ---\n${c.content}`)
-    .join('\n\n')}
+${Object.entries(contents).map(([p, c]) => `--- ${p} ---\n${c.content}`).join('\n\n')}
 Output COMPLETE new content for each file inside
-<skill name="update_editor" file="path">...</skill> blocks.`;
+<skill name="update_editor" file="path">...</skill> blocks.
+IMPORTANT: Output raw file content only. Do NOT wrap in markdown code fences (\`\`\`).`;
 
         const reply = await LLMProvider.chatCompletion({
             provider: this.provider,
             model: this.model,
             messages: [],
-            systemPrompt: 'You are a coding assistant. Output only skill blocks.',
+            systemPrompt: 'You are a coding assistant. Output only skill blocks with raw file content — never markdown fences.',
             userContent: prompt,
             thinkingMode: false
         });
@@ -254,13 +317,15 @@ Output COMPLETE new content for each file inside
         const fileMap = {};
         for (const b of blocks) {
             const path = b.file || files[0];
-            fileMap[path] = {
-                content: b.content,
-                sha: contents[path]?.sha || null
-            };
+            // Strip any accidental markdown fences the LLM added
+            const cleanContent = b.content
+                .replace(/^```[\w]*\n?/, '')
+                .replace(/\n?```$/, '')
+                .trim();
+            fileMap[path] = { content: cleanContent, sha: contents[path]?.sha || null };
         }
 
-        // Lint check before commit
+        // ---- Phase 2A: Lint + syntax check before commit ----
         const lintable = {};
         for (const [p, { content }] of Object.entries(fileMap)) {
             if (p.endsWith('.js') || p.endsWith('.jsx')) lintable[p] = content;
@@ -271,23 +336,27 @@ Output COMPLETE new content for each file inside
                 ExecutorAPI.syntax(lintable),
                 ExecutorAPI.lint(lintable)
             ]);
-            const errors = [
-                ...(syntax.errors || []),
-                ...(lint.errors || [])
-            ].filter(e => e.severity !== 'warning');
-            if (errors.length) {
-                this.onLog(`❌ Lint errors: ${errors[0].message}`);
-                return false;
+
+            if (syntax._unreachable) {
+                this.onLog('⚠️ Executor unreachable — skipping lint gate');
+            } else {
+                const errors = [
+                    ...(syntax.errors || []),
+                    ...(lint.errors || [])
+                ].filter(e => e.severity === 'error');
+
+                if (errors.length) {
+                    this.onLog(`❌ Quality gate failed: ${errors[0].message} (${errors[0].file}:${errors[0].line})`);
+                    return false;
+                }
+                this.onLog('✅ Quality gate passed');
             }
         }
 
         try {
             await GitHubService.commitMultipleFiles(
-                this.repo,
-                this.branch,
-                fileMap,
-                `Task: ${task.title}`,
-                this.githubToken
+                this.repo, this.branch, fileMap,
+                `Task: ${task.title}`, this.githubToken
             );
             return true;
         } catch (e) {
@@ -297,21 +366,17 @@ Output COMPLETE new content for each file inside
     }
 
     // ----------------------------------------------------------------
-    // SMART REVIEWER (now uses the stored goal and logs the verdict)
+    // REVIEW — strict PASS / ISSUES: format enforced
     // ----------------------------------------------------------------
     async _reviewAll() {
         const done = this._getDoneTasks();
         if (!done.length) return { passed: true };
-        this.onLog(`🔍 Reviewing ${done.length} tasks`);
+        this.onLog(`🔍 Reviewing ${done.length} task(s)`);
         let issues = 0;
         for (const t of done) {
             const passed = await this._reviewTask(t);
-            if (passed) {
-                this._markTaskReviewPassed(t.id);
-            } else {
-                issues++;
-                this._markTaskTodo(t.id);
-            }
+            if (passed) this._markTaskReviewPassed(t.id);
+            else { issues++; this._markTaskTodo(t.id); }
         }
         return { passed: issues === 0, issues };
     }
@@ -331,46 +396,51 @@ Output COMPLETE new content for each file inside
             }
         }
 
-        const prompt = `Review the following implementation against the original request.
-Goal: "${goal}"
-Task: "${task.title}"
-Task description: ${task.description}
+        const prompt = `You are a strict code reviewer. Review the implementation below.
+
+Original goal: "${goal}"
+Task title: "${task.title}"
+Task description: "${task.description}"
+
 Implementation:
 ${Object.entries(contents).map(([p, c]) => `--- ${p} ---\n${c}`).join('\n\n')}
-Does this implementation satisfy the goal? Check specifically:
-- Have the correct UI elements been changed?
-- Does the code do what the task description asked for?
-- Are there any obvious errors?
-Reply exactly "PASS" if the task is correctly implemented. If not, reply "ISSUES:" followed by a short description of what is wrong.`;
+
+Rules:
+- Your FIRST word must be exactly "PASS" or "ISSUES"
+- If the task is correctly implemented, write: PASS
+- If there are problems, write: ISSUES: <short description>
+- Do not write anything before PASS or ISSUES
+- Do not explain your reasoning before the verdict`;
 
         const reply = await LLMProvider.chatCompletion({
             provider: this.provider,
             model: this.model,
             messages: [],
-            systemPrompt: 'You are a helpful code reviewer. Be fair and contextual.',
+            systemPrompt: 'You are a strict code reviewer. Your first word must be PASS or ISSUES. No exceptions.',
             userContent: prompt,
             thinkingMode: false
         });
 
         const verdict = reply.content.trim();
-        this.onLog(`Review of "${task.title}": ${verdict}`);
-
-        return verdict.toUpperCase().startsWith('PASS');
+        const firstWord = verdict.split(/[\s:]/)[0].toUpperCase();
+        this.onLog(`Review "${task.title}": ${verdict.slice(0, 120)}`);
+        return firstWord === 'PASS';
     }
 
+    // ----------------------------------------------------------------
+    // PR
+    // ----------------------------------------------------------------
     async _createPR(goal) {
         const title = `Self‑improve: ${goal.slice(0, 60)}`;
         const pr = await GitHubService.createPullRequest(
-            this.repo,
-            this.branch,
-            title,
-            null,
-            this.githubToken
+            this.repo, this.branch, title, null, this.githubToken
         );
         return pr.html_url;
     }
 
-    // --- Task queue helpers ---
+    // ----------------------------------------------------------------
+    // Task queue helpers
+    // ----------------------------------------------------------------
     _initTaskQueue(tasks) {
         this.taskQueue = { tasks: [], nextId: 1 };
         for (const t of tasks) {
@@ -384,31 +454,11 @@ Reply exactly "PASS" if the task is correctly implemented. If not, reply "ISSUES
         }
     }
 
-    _getPendingTasks() {
-        return (this.taskQueue?.tasks || []).filter(t => t.status === 'TODO');
-    }
-
-    _getDoneTasks() {
-        return (this.taskQueue?.tasks || []).filter(t => t.status === 'DONE');
-    }
-
-    _markTaskDone(id) {
-        const t = this.taskQueue?.tasks.find(t => t.id === id);
-        if (t) t.status = 'DONE';
-    }
-
-    _markTaskFailed(id) {
-        const t = this.taskQueue?.tasks.find(t => t.id === id);
-        if (t) t.status = 'FAILED';
-    }
-
-    _markTaskTodo(id) {
-        const t = this.taskQueue?.tasks.find(t => t.id === id);
-        if (t) t.status = 'TODO';
-    }
-
-    _markTaskReviewPassed(id) {
-        const t = this.taskQueue?.tasks.find(t => t.id === id);
-        if (t) t.status = 'DONE';
-    }
+    _getPendingTasks()       { return (this.taskQueue?.tasks || []).filter(t => t.status === 'TODO'); }
+    _getDoneTasks()          { return (this.taskQueue?.tasks || []).filter(t => t.status === 'DONE'); }
+    _markTaskDone(id)        { const t = this._findTask(id); if (t) t.status = 'DONE'; }
+    _markTaskFailed(id)      { const t = this._findTask(id); if (t) t.status = 'FAILED'; }
+    _markTaskTodo(id)        { const t = this._findTask(id); if (t) t.status = 'TODO'; }
+    _markTaskReviewPassed(id){ const t = this._findTask(id); if (t) t.status = 'DONE'; }
+    _findTask(id)            { return this.taskQueue?.tasks.find(t => t.id === id); }
 }
