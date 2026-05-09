@@ -240,6 +240,8 @@ Max 4 tasks, each ≤2 files.`;
         try {
             const json = JSON.parse(reply.content.replace(/```json|```/g, '').trim());
             this._initTaskQueue(json.tasks);
+            // Log the plan summary so the user can see what the bot intends
+            this.onLog(`📋 Plan: ${json.milestone_title}\n💡 ${json.analysis}\n🗂 ${json.tasks.length} task(s): ${json.tasks.map(t => t.title).join(' → ')}`);
             return json;
         } catch (e) {
             this.onLog(`Plan parse error: ${e.message}`);
@@ -254,17 +256,22 @@ Max 4 tasks, each ≤2 files.`;
         const tasks = this._getPendingTasks();
         for (const t of tasks) {
             if (this.pauseRequested) break;
-            this.onLog(`🔨 Executing: ${t.title}`);
-            const ok = await this._executeTask(t);
-            if (ok) this._markTaskDone(t.id);
-            else this._markTaskFailed(t.id);
+            this.onLog(`🔨 Executing: ${t.title}\n   📌 ${t.description}\n   🎯 Planned files: ${(t.files || []).join(', ') || 'none'}`);
+            const result = await this._executeTask(t);
+            if (result) {
+                // result is the committed fileMap — store it on the task for the reviewer
+                t.committedFiles = Object.keys(result);
+                this._markTaskDone(t.id);
+            } else {
+                this._markTaskFailed(t.id);
+            }
             this.onTaskUpdate();
         }
     }
 
     async _executeTask(task) {
         const files = task.files || [];
-        if (!files.length) return false;
+        if (!files.length) return null;
 
         const allPaths = ContextBuilder.identifyRequiredFiles({
             targetFiles: files, manifest: this.manifest, maxFiles: 5
@@ -312,7 +319,7 @@ IMPORTANT: Output raw file content only. Do NOT wrap in markdown code fences (\`
 
         const { actions } = processAgentSkills(reply.content);
         const blocks = actions.updateEditorBlocks;
-        if (!blocks.length) return false;
+        if (!blocks.length) return null;
 
         const fileMap = {};
         for (const b of blocks) {
@@ -347,7 +354,7 @@ IMPORTANT: Output raw file content only. Do NOT wrap in markdown code fences (\`
 
                 if (errors.length) {
                     this.onLog(`❌ Quality gate failed: ${errors[0].message} (${errors[0].file}:${errors[0].line})`);
-                    return false;
+                    return null;
                 }
                 this.onLog('✅ Quality gate passed');
             }
@@ -358,10 +365,13 @@ IMPORTANT: Output raw file content only. Do NOT wrap in markdown code fences (\`
                 this.repo, this.branch, fileMap,
                 `Task: ${task.title}`, this.githubToken
             );
-            return true;
+            const writtenFiles = Object.keys(fileMap);
+            this.onLog(`📝 Task touched ${writtenFiles.length} file(s): ${writtenFiles.join(', ')}`);
+            // Return the fileMap so the caller can store committedFiles on the task
+            return fileMap;
         } catch (e) {
             this.onLog(`Commit failed: ${e.message}`);
-            return false;
+            return null;
         }
     }
 
@@ -383,7 +393,8 @@ IMPORTANT: Output raw file content only. Do NOT wrap in markdown code fences (\`
 
     async _reviewTask(task) {
         const goal = this.currentGoal || 'the user request';
-        const files = task.files || [];
+        // Use committedFiles (what was actually written) if available, fall back to planned files
+        const files = task.committedFiles || task.files || [];
         const contents = {};
         for (const p of files) {
             try {
@@ -401,16 +412,21 @@ IMPORTANT: Output raw file content only. Do NOT wrap in markdown code fences (\`
 Original goal: "${goal}"
 Task title: "${task.title}"
 Task description: "${task.description}"
+Files actually written: ${files.join(', ')}
 
-Implementation:
+Implementation (read from repo after commit):
 ${Object.entries(contents).map(([p, c]) => `--- ${p} ---\n${c}`).join('\n\n')}
+
+Review checklist:
+- Does the file content match what the task description asked for?
+- Are the correct properties/values changed in the correct files?
+- Is there any mismatch between what was planned and what was actually written?
 
 Rules:
 - Your FIRST word must be exactly "PASS" or "ISSUES"
-- If the task is correctly implemented, write: PASS
-- If there are problems, write: ISSUES: <short description>
-- Do not write anything before PASS or ISSUES
-- Do not explain your reasoning before the verdict`;
+- If the task is correctly implemented: PASS
+- If there are problems: ISSUES: <specific description of what is wrong and in which file>
+- Do not write anything before PASS or ISSUES`;
 
         const reply = await LLMProvider.chatCompletion({
             provider: this.provider,
@@ -423,7 +439,7 @@ Rules:
 
         const verdict = reply.content.trim();
         const firstWord = verdict.split(/[\s:]/)[0].toUpperCase();
-        this.onLog(`Review "${task.title}": ${verdict.slice(0, 120)}`);
+        this.onLog(`🔎 Review "${task.title}" [${files.join(', ')}]: ${verdict.slice(0, 150)}`);
         return firstWord === 'PASS';
     }
 
