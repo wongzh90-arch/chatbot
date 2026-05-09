@@ -23,7 +23,7 @@ export class ContextBuilder {
         return [...targetsFirst, ...others].slice(0, maxFiles);
     }
 
-    static buildContext({ targetContents, relatedContents, manifest, tokenBudget = 20000, navText = '' }) {
+    static buildContext({ targetContents, relatedContents, manifest, tokenBudget = 20000 }) {
         let context = '## Target files (full content)\n';
         for (const f of targetContents) {
             context += `\n<file path="${f.path}">\n${f.content}\n</file>\n`;
@@ -36,6 +36,6 @@ export class ContextBuilder {
                 context += `\n<file path="${f.path}" interface-only>\n${interfaceContent}\n</file>\n`;
             }
         }
-        return { contextString: context, tokensUsed: context.length / 4, navText };
+        return { contextString: context, tokensUsed: context.length / 4};
     }
 }
