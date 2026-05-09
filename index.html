@@ -2,16 +2,38 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Self‑Recursive Bot</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Roboto', sans-serif; background: #0a0a0a; color: #e5e5e5; }
-        #root { height: 100vh; display: flex; flex-direction: column; }
-        #root input, #root select { color: white; }
+        body {
+            font-family: 'Roboto', sans-serif;
+            background: #0a0a0a;
+            color: #e5e5e5;
+            -webkit-font-smoothing: antialiased;
+            overflow: hidden;
+        }
+        #root {
+            height: 100vh;
+            height: -webkit-fill-available; /* for mobile Safari */
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #root input, #root select, #root button, #root textarea {
+            color: white;
+            font-family: inherit;
+            font-size: 16px; /* prevent iOS zoom on focus */
+        }
+        button {
+            cursor: pointer;
+            min-height: 44px; /* touch target size */
+            min-width: 44px;
+        }
+        /* Mobile-specific tweaks will be in React components */
     </style>
     <script type="importmap">
         {
