@@ -1,26 +1,36 @@
 // src/utils/manifestBuilder.js
-// Parses JS files for ES module imports/exports and builds a dependency graph.
+// Builds a dependency graph for all JavaScript files in a repository.
+// Parses ES module imports/exports and creates a map:
+//   { [filePath]: { exports: string[], imports: string[], importedBy: string[] } }
 
 export class ManifestBuilder {
     /**
-     * Build a manifest object from the complete file tree.
-     * @param {Array<{path:string, content:string}>} files - list of file objects from the repo
-     * @returns {Object} manifest JSON (path -> {exports, imports, importedBy})
+     * Build a manifest from an array of { path, content } objects.
+     * @param {Array<{path: string, content: string}>} fileList
+     * @returns {Object} manifest object
      */
-    static buildFromFiles(files) {
-        const jsFiles = files.filter(f => /\.(js|jsx|mjs)$/.test(f.path));
-        // Step 1: parse exports and imports from each file
-        const entries = {};
-        for (const file of jsFiles) {
-            const path = file.path;
-            const code = file.content;
-            entries[path] = {
-                exports: this._extractExports(code),
-                imports: this._extractImportPaths(code)  // resolved to absolute paths
+    static buildFromFiles(fileList) {
+        // 1. Extract raw exports & imports for each file
+        const raw = {};
+        for (const f of fileList) {
+            raw[f.path] = {
+                exports: this._extractExports(f.content),
+                imports: this._extractImportPaths(f.content)
             };
         }
 
-        // Step 2: compute importedBy (reverse lookup)
+        // 2. Resolve relative imports to absolute paths (repo root)
+        const entries = {};
+        for (const [path, data] of Object.entries(raw)) {
+            const resolvedImports = [];
+            for (const imp of data.imports) {
+                const resolved = this._resolveImportPath(imp, path);
+                if (resolved) resolvedImports.push(resolved);
+            }
+            entries[path] = { exports: data.exports, imports: resolvedImports };
+        }
+
+        // 3. Compute importedBy (reverse dependency lookup)
         for (const [path, entry] of Object.entries(entries)) {
             entry.importedBy = [];
             for (const [otherPath, otherEntry] of Object.entries(entries)) {
@@ -33,17 +43,17 @@ export class ManifestBuilder {
         return entries;
     }
 
-    // --- private helpers ---
+    // ---- private helpers ----
 
     static _extractExports(code) {
         const exports = new Set();
-        // named exports: export { foo, bar }; or export const foo = ...
+        // export const/let/var/function/class foo
         const namedRegex = /export\s+(?:const|let|var|function|class)\s+(\w+)/g;
         let match;
         while ((match = namedRegex.exec(code)) !== null) {
             exports.add(match[1]);
         }
-        // export { name };
+        // export { foo, bar }
         const braceRegex = /export\s*\{([^}]*)\}/g;
         while ((match = braceRegex.exec(code)) !== null) {
             match[1].split(',').forEach(name => {
@@ -51,7 +61,7 @@ export class ManifestBuilder {
                 if (clean) exports.add(clean);
             });
         }
-        // export default (anonymous) -> we just mark as 'default'
+        // export default
         if (/export\s+default\s+/.test(code)) {
             exports.add('default');
         }
@@ -60,51 +70,45 @@ export class ManifestBuilder {
 
     static _extractImportPaths(code) {
         const paths = new Set();
-        // import ... from './relative' or 'absolute'
+        // import ... from './path'
         const fromRegex = /import\s+(?:[\s\S]*?)\s+from\s+['"]([^'"]+)['"]/g;
         let match;
         while ((match = fromRegex.exec(code)) !== null) {
             const importPath = match[1];
+            // Only keep relative imports (start with .)
             if (importPath.startsWith('.')) {
-                // resolve relative path to repo-absolute path (from project root)
-                // We need the file's own path to resolve. This method is called per-file,
-                // so we pass the file path as context? Actually we can't resolve here.
-                // Instead, we'll delay resolution until we have the file path.
-                // So _extractImportPaths returns raw paths (relative or alias).
                 paths.add(importPath);
-            } else {
-                // likely an external module (ignore)
             }
         }
-        // also import() dynamic expressions? skip.
         return [...paths];
     }
 
     /**
-     * Resolve a relative import string relative to a given file path.
-     * @param {string} importPath - './foo' or '../bar'
-     * @param {string} currentFilePath - like 'src/components/Header.js'
-     * @returns {string} absolute repo path (e.g., 'src/components/foo.js')
+     * Resolve a relative import path to an absolute repo path.
+     * @param {string} importPath - e.g., './foo', '../bar'
+     * @param {string} currentFilePath - e.g., 'src/components/Header.js'
+     * @returns {string|null} absolute path (e.g., 'src/components/foo.js'), or null if unresolvable
      */
-    static resolveImportPath(importPath, currentFilePath) {
-        if (!importPath.startsWith('.')) return null; // not a local relative path
-        const dir = currentFilePath.includes('/') ? currentFilePath.substring(0, currentFilePath.lastIndexOf('/')) : '';
-        // naive resolution (no node_modules)
-        const segments = [...(dir ? dir.split('/') : []), ...importPath.split('/')];
-        const resolved = [];
-        for (const seg of segments) {
-            if (seg === '.' || seg === '') continue;
-            if (seg === '..') {
-                resolved.pop();
+    static _resolveImportPath(importPath, currentFilePath) {
+        if (!importPath.startsWith('.')) return null;
+        const currentDir = currentFilePath.includes('/')
+            ? currentFilePath.substring(0, currentFilePath.lastIndexOf('/'))
+            : '';
+        const parts = importPath.split('/');
+        const stack = currentDir ? currentDir.split('/') : [];
+        for (const part of parts) {
+            if (part === '.' || part === '') continue;
+            if (part === '..') {
+                stack.pop();
             } else {
-                resolved.push(seg);
+                stack.push(part);
             }
         }
-        let absolutePath = resolved.join('/');
-        if (!absolutePath.endsWith('.js') && !absolutePath.endsWith('.jsx') && !absolutePath.endsWith('.mjs')) {
-            // try adding .js extension if missing
-            absolutePath += '.js';
+        let absolute = stack.join('/');
+        // Auto‑append .js if no extension
+        if (!/\.(js|jsx|mjs)$/.test(absolute)) {
+            absolute += '.js';
         }
-        return absolutePath;
+        return absolute;
     }
 }
