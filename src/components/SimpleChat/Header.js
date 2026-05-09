@@ -2,12 +2,10 @@ import React from 'react';
 import { useWorkspaceStore } from '../../stores/workspaceStore.js';
 import { useProviderStore } from '../../stores/providerStore.js';
 
-export function Header({ isRunning }) {
+export function Header({ isRunning, windowWidth }) {
     const workspace = useWorkspaceStore();
     const provider = useProviderStore();
-
-    // Responsive styles via media query logic in JS
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    const isMobile = windowWidth < 768;
 
     const containerStyle = {
         padding: '12px 16px',
@@ -17,30 +15,25 @@ export function Header({ isRunning }) {
         gap: 8,
         alignItems: 'center',
         background: '#0a0a0a',
+        flexDirection: isMobile ? 'column' : 'row',
     };
-
-    if (isMobile) {
-        containerStyle.flexDirection = 'column';
-        containerStyle.alignItems = 'stretch';
-    }
 
     const inputStyle = {
         background: '#1a1a1a',
         border: '1px solid #333',
         borderRadius: 6,
-        padding: '6px 10px',
-        fontSize: 14,
+        padding: '8px 12px',
         color: 'white',
+        fontSize: isMobile ? 18 : 14,
         width: isMobile ? '100%' : 150,
-        minWidth: 0,
     };
 
     const buttonStyle = {
         background: '#222',
         border: 'none',
         borderRadius: 6,
-        padding: '6px 12px',
-        fontSize: 14,
+        padding: '8px 14px',
+        fontSize: isMobile ? 18 : 14,
         color: 'white',
         width: isMobile ? '100%' : 'auto',
     };
@@ -49,18 +42,15 @@ export function Header({ isRunning }) {
         React.createElement('strong', {
             style: {
                 color: '#f59e0b',
-                fontSize: isMobile ? 18 : 20,
+                fontSize: isMobile ? 22 : 20,
                 whiteSpace: 'nowrap',
             }
         }, 'Self‑Recursive Bot'),
 
         React.createElement('div', {
             style: {
-                display: 'flex',
-                gap: 8,
-                flex: 1,
-                flexWrap: 'wrap',
-                ...(isMobile ? { flexDirection: 'column' } : {})
+                display: 'flex', gap: 8, flex: 1, flexWrap: 'wrap',
+                flexDirection: isMobile ? 'column' : 'row',
             }
         },
             React.createElement('input', {
@@ -92,7 +82,7 @@ export function Header({ isRunning }) {
         isRunning && React.createElement('span', {
             style: {
                 color: '#f59e0b',
-                fontSize: 14,
+                fontSize: isMobile ? 16 : 14,
                 ...(isMobile ? { width: '100%', textAlign: 'center' } : {}),
             }
         }, '⚙️ Running...')
