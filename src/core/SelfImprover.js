@@ -29,6 +29,8 @@ export class SelfImprover {
         this.pauseRequested = false;
         this.taskQueue = null;
         this.currentGoal = null;
+        // Populated by _discoverFiles — ranked [{path, content, score, hits:[]}]
+        this.discoveryCache = [];
     }
 
     async healthCheck() {
@@ -129,6 +131,74 @@ Example: ["Which component should be changed?", "Should existing tests be preser
     }
 
     // ----------------------------------------------------------------
+    // FILE DISCOVERY
+    // Before planning: extract keywords from the goal, scan all
+    // JS/HTML/CSS/TOML file contents for those keywords, rank by hits.
+    // Result stored in this.discoveryCache for planner + executor.
+    // ----------------------------------------------------------------
+    async _discoverFiles(goal) {
+        this.onLog('🔍 Discovering relevant files...');
+
+        // Step 1 — extract search keywords from the goal via LLM
+        let keywords = [];
+        try {
+            const kwReply = await LLMProvider.chatCompletion({
+                provider: this.provider,
+                model: this.model,
+                messages: [],
+                systemPrompt: 'You extract search keywords. Output only a JSON array of strings.',
+                userContent: `Extract 5–10 specific search keywords from this coding goal that would help find the relevant files.
+Include: CSS property names, variable names, function names, HTML tags, string literals, and file-type hints.
+Goal: "${goal}"
+Return ONLY a JSON array, e.g. ["font-family", "Roboto", "body {", "fontFamily", "index.html"]`,
+                thinkingMode: false
+            });
+            keywords = JSON.parse(kwReply.content.replace(/```json|```/g, '').trim());
+        } catch (e) {
+            this.onLog(`⚠️ Keyword extraction failed: ${e.message} — using goal words`);
+            // Fallback: split goal into words of 4+ chars as rough keywords
+            keywords = goal.match(/\b\w{4,}\b/g) || [];
+        }
+
+        this.onLog(`🔑 Keywords: ${keywords.join(', ')}`);
+
+        // Step 2 — identify scannable files (JS, JSX, HTML, CSS, TOML, JSON config)
+        const SCAN_EXTS = /\.(js|jsx|html|css|toml|json)$/;
+        const SKIP_PATHS = /node_modules|\.min\.|package-lock|yarn\.lock/;
+        const candidates = (this.fileTree || [])
+            .filter(f => SCAN_EXTS.test(f.path) && !SKIP_PATHS.test(f.path));
+
+        // Step 3 — fetch and score each file
+        const scored = [];
+        for (const f of candidates) {
+            let content = '';
+            try {
+                const loaded = await GitHubService.loadFileContent(
+                    this.repo, this.branch, f.path, this.githubToken
+                );
+                content = loaded.content;
+            } catch { continue; }
+
+            const lower = content.toLowerCase();
+            const hits = keywords.filter(kw => lower.includes(kw.toLowerCase()));
+            if (hits.length === 0) continue;
+
+            scored.push({ path: f.path, content, score: hits.length, hits });
+        }
+
+        // Step 4 — sort by score descending, keep top 8
+        scored.sort((a, b) => b.score - a.score);
+        this.discoveryCache = scored.slice(0, 8);
+
+        const summary = this.discoveryCache
+            .map(f => `${f.path} (${f.score} hit${f.score > 1 ? 's' : ''}: ${f.hits.slice(0, 3).join(', ')})`)
+            .join('\n   ');
+
+        this.onLog(`📂 Relevant files found:\n   ${summary || 'none — will fall back to manifest'}`);
+        return this.discoveryCache;
+    }
+
+    // ----------------------------------------------------------------
     // MAIN RUN LOOP
     // ----------------------------------------------------------------
     async runGoal(goal) {
@@ -144,7 +214,10 @@ Example: ["Which component should be changed?", "Should existing tests be preser
             await this._ensureManifest();
             if (!this.fileTree) await this.fetchFileTree();
 
-            // 2. Plan
+            // 2. File discovery — scan actual content before planning
+            await this._discoverFiles(enrichedGoal);
+
+            // 3. Plan
             const plan = await this._plan(enrichedGoal);
             if (!plan?.tasks?.length) {
                 this.onLog('❌ No tasks generated');
@@ -208,30 +281,45 @@ Example: ["Which component should be changed?", "Should existing tests be preser
     // ----------------------------------------------------------------
     async _plan(goal) {
         this.onLog('📝 Planning...');
-        const relevant = (this.fileTree || []).slice(0, 8).map(f => f.path);
-        const context = ContextBuilder.buildContext({
-            targetContents: [], relatedContents: [], manifest: this.manifest
-        });
+
+        // Use discovered files (with real content) if available,
+        // otherwise fall back to the first 8 filenames from the tree
+        const discoveredContext = this.discoveryCache.length
+            ? this.discoveryCache
+                .map(f => `### ${f.path} (matched: ${f.hits.join(', ')})\n${f.content.slice(0, 3000)}`)
+                .join('\n\n')
+            : (this.fileTree || []).slice(0, 8).map(f => f.path).join(', ');
+
+        const usingDiscovery = this.discoveryCache.length > 0;
 
         const prompt = `Create a plan for: "${goal}"
 Repo: ${this.repo}, branch: ${this.branch}
-Key files: ${relevant.join(', ')}
-${context.contextString}
+
+${usingDiscovery
+    ? `The following files were scanned and found relevant to the goal (content shown):\n\n${discoveredContext}`
+    : `Key files (names only — no content scan available):\n${discoveredContext}`
+}
+
+Based on the actual file contents above, determine exactly which files need to change and what must change in each.
 Return ONLY JSON:
 {
-  "milestone_title": "short",
-  "analysis": "sentence",
+  "milestone_title": "short title",
+  "analysis": "one sentence explaining which files need to change and why",
   "tasks": [
-    {"title": "...", "description": "...", "files": ["path"]}
+    {
+      "title": "short task title",
+      "description": "specific description of what to change, including property names, values, or code patterns",
+      "files": ["exact/path/to/file"]
+    }
   ]
 }
-Max 4 tasks, each ≤2 files.`;
+Max 4 tasks. Each task must name the exact file path from the scanned list above.`;
 
         const reply = await LLMProvider.chatCompletion({
             provider: this.provider,
             model: this.model,
             messages: [],
-            systemPrompt: 'You are a senior developer. Output only JSON.',
+            systemPrompt: 'You are a senior developer. Output only JSON. File paths must be exact — copy them from the context.',
             userContent: prompt,
             thinkingMode: this.thinkingMode,
             reasoningEffort: this.reasoningEffort
@@ -240,8 +328,7 @@ Max 4 tasks, each ≤2 files.`;
         try {
             const json = JSON.parse(reply.content.replace(/```json|```/g, '').trim());
             this._initTaskQueue(json.tasks);
-            // Log the plan summary so the user can see what the bot intends
-            this.onLog(`📋 Plan: ${json.milestone_title}\n💡 ${json.analysis}\n🗂 ${json.tasks.length} task(s): ${json.tasks.map(t => t.title).join(' → ')}`);
+            this.onLog(`📋 Plan: ${json.milestone_title}\n💡 ${json.analysis}\n🗂 ${json.tasks.length} task(s): ${json.tasks.map(t => `${t.title} → [${(t.files || []).join(', ')}]`).join(' | ')}`);
             return json;
         } catch (e) {
             this.onLog(`Plan parse error: ${e.message}`);
@@ -273,9 +360,20 @@ Max 4 tasks, each ≤2 files.`;
         const files = task.files || [];
         if (!files.length) return null;
 
-        const allPaths = ContextBuilder.identifyRequiredFiles({
+        // Seed context paths: start with planned files, then add any discovery
+        // hits not already in the list (ranked by score), then manifest imports.
+        // This ensures the executor always has real file content to work from.
+        const discoveryPaths = this.discoveryCache
+            .filter(f => !files.includes(f.path))
+            .slice(0, 3)
+            .map(f => f.path);
+
+        const manifestPaths = ContextBuilder.identifyRequiredFiles({
             targetFiles: files, manifest: this.manifest, maxFiles: 5
-        });
+        }).filter(p => !files.includes(p) && !discoveryPaths.includes(p));
+
+        // Final ordered list: planned targets first, then discovery hits, then manifest
+        const allPaths = [...new Set([...files, ...discoveryPaths, ...manifestPaths])].slice(0, 8);
 
         const contents = {};
         for (const p of allPaths) {
