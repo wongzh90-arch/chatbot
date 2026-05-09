@@ -85,6 +85,73 @@ app.post('/lint', async (req, res) => {
   }
 });
 
+// ---------- Clarification state machine for planning ----------
+// In‑memory state: stores the most recent /plan request and its state.
+let planState = {
+  status: 'initial',         // 'initial' | 'awaiting_clarification' | 'planning'
+  originalRequest: null      // the body of the /plan request that started the flow
+};
+
+app.post('/plan', (req, res) => {
+  const { files, clarification } = req.body;
+
+  // Validate that 'files' is provided (as a simple example requirement)
+  if (!files || typeof files !== 'object') {
+    return res.status(400).json({ error: 'Missing files object' });
+  }
+
+  // If state is 'initial' and no clarification provided → ask for clarification
+  if (planState.status === 'initial' && !clarification) {
+    planState.status = 'awaiting_clarification';
+    planState.originalRequest = req.body;   // store the entire body
+    return res.json({
+      status: 'awaiting_clarification',
+      question: 'Please provide clarification for your plan request. Submit the same request with a "clarification" field.',
+      hint: 'Describe what you want the plan to accomplish.'
+    });
+  }
+
+  // If state is 'awaiting_clarification' and clarification is provided → proceed
+  if (planState.status === 'awaiting_clarification' && clarification) {
+    // Perform planning logic (here we just echo back the clarification and files)
+    const planResult = {
+      status: 'planning_complete',
+      clarification: clarification,
+      files: planState.originalRequest.files,
+      summary: `Plan generated based on clarification: "${clarification}"`
+    };
+
+    // Reset state for next request
+    planState = { status: 'initial', originalRequest: null };
+
+    return res.json(planResult);
+  }
+
+  // If state is 'initial' but clarification is provided (unexpected) → treat as direct plan
+  if (planState.status === 'initial' && clarification) {
+    // Optionally, allow direct planning with clarification
+    const planResult = {
+      status: 'planning_complete',
+      clarification: clarification,
+      files: files,
+      summary: `Plan generated directly from provided clarification: "${clarification}"`
+    };
+    return res.json(planResult);
+  }
+
+  // If state is 'awaiting_clarification' but no clarification in body → reject
+  if (planState.status === 'awaiting_clarification' && !clarification) {
+    return res.status(400).json({
+      error: 'You are in a clarification state. Please provide the "clarification" field to proceed.',
+      question: 'What specific requirements or constraints should the plan include?'
+    });
+  }
+
+  // Fallback
+  res.status(400).json({ error: 'Invalid request for /plan' });
+});
+// ---------- End of clarification state machine ----------
+
 app.get('/health', (req, res) => res.json({ ok: true, version: '1.0.0' }));
 
 const PORT = process.env.PORT || 3001;
