@@ -1,0 +1,21 @@
+{
+  "_comment": "Editable preferences for the self‑improving bot. Save triggers a commit.",
+  "clarification": {
+    "customPrompt": "Ask about edge cases and security concerns."
+  },
+  "planning": {
+    "rules": [
+      "Keep changes minimal and focused.",
+      "When unsure, ask for clarification."
+    ],
+    "decompositionThreshold": 4
+  },
+  "execution": {
+    "codeStyle": "Use ES6 modules, no semicolons, single quotes.",
+    "lintBeforeCommit": true
+  },
+  "review": {
+    "strictness": "high",
+    "checkEdgeCases": true
+  }
+}
