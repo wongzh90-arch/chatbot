@@ -39,3 +39,38 @@ export class ContextBuilder {
         return { contextString: context, tokensUsed: context.length / 4};
     }
 }
+
+/**
+ * Retrieves the user's notes from localStorage.
+ * @returns {string} The parsed notes text, or '' if none stored.
+ */
+export function getNotes() {
+    try {
+        const stored = localStorage.getItem('user_notes');
+        // If stored is a string, parse it; otherwise return ''
+        if (stored !== null) {
+            try {
+                const parsed = JSON.parse(stored);
+                return typeof parsed === 'string' ? parsed : '';
+            } catch {
+                // If parsing fails, treat the raw string as the notes
+                return stored;
+            }
+        }
+    } catch {
+        // localStorage access might fail (e.g., SSG)
+    }
+    return '';
+}
+
+/**
+ * Saves the user's notes to localStorage.
+ * @param {string} text - The notes text to store.
+ */
+export function setNotes(text) {
+    try {
+        localStorage.setItem('user_notes', JSON.stringify(text));
+    } catch {
+        // Silently fail if localStorage is unavailable
+    }
+}
