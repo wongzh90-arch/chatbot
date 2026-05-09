@@ -13,7 +13,7 @@ export function InputBar({ input, setInput, onSend }) {
                 }
             },
             placeholder: "/self-improve 'add a comment'",
-            style: { flex: 1, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, padding: '8px 12px', color: 'white', fontSize: '16px' }
+            style: { flex: 1, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, padding: '8px 12px', color: 'white', fontSize: '16px', lineHeight: '1.5' }
         }),
         React.createElement('button', {
             onClick: onSend,
