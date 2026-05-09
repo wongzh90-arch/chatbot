@@ -1,9 +1,8 @@
 import React from 'react';
 
-export function TaskList({ tasks }) {
+export function TaskList({ tasks, windowWidth }) {
     if (!tasks.length) return null;
-
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    const isMobile = windowWidth < 768;
 
     return React.createElement('div', {
         style: {
@@ -12,20 +11,30 @@ export function TaskList({ tasks }) {
             padding: '8px 12px',
             maxHeight: isMobile ? 120 : 150,
             overflowY: 'auto',
-            fontSize: 13,
+            fontSize: isMobile ? 15 : 13,
         }
     },
         React.createElement('div', {
-            style: { fontWeight: 'bold', fontSize: 12, marginBottom: 6 }
+            style: {
+                fontWeight: 'bold',
+                fontSize: isMobile ? 14 : 12,
+                marginBottom: 6,
+            }
         }, '📋 Tasks'),
         tasks.map(t =>
             React.createElement('div', {
                 key: t.id,
-                style: { fontSize: 12, display: 'flex', gap: 8, padding: '3px 0', flexWrap: 'wrap' }
+                style: {
+                    fontSize: isMobile ? 14 : 12,
+                    display: 'flex',
+                    gap: 8,
+                    padding: '4px 0',
+                    flexWrap: 'wrap',
+                }
             },
                 React.createElement('span', {
                     style: {
-                        width: isMobile ? 60 : 80,
+                        width: isMobile ? 70 : 80,
                         color: t.status === 'DONE' ? '#4ade80' : t.status === 'FAILED' ? '#f87171' : '#fbbf24',
                         fontWeight: 'bold',
                     }
