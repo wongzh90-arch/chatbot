@@ -9,6 +9,7 @@
  */
 import { GitHubService } from '../services/github.js';
 import { LLMProvider } from '../services/llmProvider.js';
+import { PreferencesService } from '../services/PreferencesService.js';
 import { runClarification } from './clarification.js';
 import { ensureManifest } from './manifestManager.js';
 import { chunkedBuildIndex } from './chunkedIndexer.js';
@@ -29,8 +30,10 @@ import { SmokeTest } from '../services/smokeTest.js';
 export class SelfImprover {
     constructor({ repo, branch, githubToken, provider, model, thinkingMode,
                   reasoningEffort, netlitySiteName,
-                  onLog, onTaskUpdate, onRunComplete, onClarificationNeeded }) {
+                  onLog, onTaskUpdate, onRunComplete, onClarificationNeeded,
+                  preferences }) {
         this.repo = repo;
+        this.originalBranch = branch;           // keep original for PR base
         this.branch = branch;
         this.githubToken = githubToken;
         this.provider = provider;
@@ -42,6 +45,7 @@ export class SelfImprover {
         this.onTaskUpdate = onTaskUpdate || (() => {});
         this.onRunComplete = onRunComplete || (() => {});
         this.onClarificationNeeded = onClarificationNeeded || null;
+        this.preferences = preferences || null;
 
         this.manifest = null;
         this.fileTree = null;
@@ -50,13 +54,12 @@ export class SelfImprover {
         this.currentGoal = null;
         this.discoveryCache = [];
         this.workingMemory = new WorkingMemory();
-        this.parentGoal = null;                 // set by parent when running as sub‑goal
-        this.parentWorkingMemory = null;       // inherited working memory (read‑only)
-
-        this.runId = `run-${Date.now()}`;      // unique ID for this top‑level run
+        this.parentGoal = null;
+        this.parentWorkingMemory = null;
+        this.runId = `run-${Date.now()}`;
+        this.changeBranch = null;               // feature branch for this run
     }
 
-    // ---------- common helpers (unchanged) ----------
     async fetchFileTree() {
         this.fileTree = await GitHubService.fetchFileTree(this.repo, this.branch, this.githubToken);
         this.onLog(`📁 Fetched ${this.fileTree.length} files`);
@@ -106,7 +109,6 @@ export class SelfImprover {
         this.onLog(`📂 Discovered ${this.discoveryCache.length} relevant files`);
     }
 
-    // ---------- main loop ----------
     async runGoal(goal, depth = 0) {
         this.pauseRequested = false;
         const MAX_DEPTH = 3;
@@ -115,15 +117,32 @@ export class SelfImprover {
             return { success: false };
         }
 
+        // ---------- Load preferences (top-level only) ----------
+        if (depth === 0 && !this.preferences) {
+            try {
+                this.preferences = await PreferencesService.load(this.repo, this.originalBranch, this.githubToken);
+            } catch { /* will stay empty */ }
+        }
+
+        // ---------- Create feature branch (top-level only) ----------
+        if (depth === 0 && !this.changeBranch) {
+            this.changeBranch = `${this.originalBranch}-self-improve-${Date.now()}`;
+            try {
+                await GitHubService.createBranch(this.repo, this.changeBranch, this.originalBranch, this.githubToken);
+                this.branch = this.changeBranch;
+                this.onLog(`🌿 Working on branch: ${this.changeBranch}`);
+            } catch (e) {
+                this.onLog(`⚠️ Could not create branch: ${e.message}. Continuing on ${this.branch}.`);
+            }
+        }
+
         let result = { success: false, committedFiles: [] };
 
         try {
             // ---------- Setup memory ----------
             if (depth === 0) {
-                // Top-level run: load persistent memory
                 this.workingMemory = await loadMemory(this, this.runId);
             } else {
-                // Sub-goal: inherit parent memory as a starting point
                 if (this.parentWorkingMemory) {
                     this.workingMemory = cloneWorkingMemory(this.parentWorkingMemory);
                 } else {
@@ -151,7 +170,7 @@ export class SelfImprover {
                 return result;
             }
 
-            // 4. Execute tasks – sub‑goals first (sequential), then normal tasks
+            // 4. Execute tasks – sub‑goals first (sequential), then normal tasks in parallel
             const tasks = this.taskQueue.tasks;
             const normalTasks = [];
 
@@ -164,7 +183,7 @@ export class SelfImprover {
 
                     const child = new SelfImprover({
                         repo: this.repo,
-                        branch: this.branch,
+                        branch: this.branch,   // child inherits the feature branch
                         githubToken: this.githubToken,
                         provider: this.provider,
                         model: this.model,
@@ -174,19 +193,21 @@ export class SelfImprover {
                         onLog: (msg) => this.onLog(`  [sub] ${msg}`),
                         onTaskUpdate: () => {},
                         onRunComplete: () => {},
-                        onClarificationNeeded: this.onClarificationNeeded
+                        onClarificationNeeded: this.onClarificationNeeded,
+                        preferences: this.preferences
                     });
                     child.parentGoal = goal;
-                    child.parentWorkingMemory = this.workingMemory;   // pass memory
+                    child.parentWorkingMemory = this.workingMemory;
                     child.fileTree = this.fileTree;
                     child.discoveryCache = this.discoveryCache;
+                    child.changeBranch = this.changeBranch;  // same feature branch
+                    child.branch = this.branch;
 
                     const subResult = await child.runGoal(task.subGoal, depth + 1);
 
                     if (subResult.success) {
                         markTaskDone(this, task.id);
-                        task.committedFiles = subResult.committedFiles || [];   // capture
-                        // Merge sub‑run changes back into parent memory
+                        task.committedFiles = subResult.committedFiles || [];
                         this.workingMemory.files = {
                             ...this.workingMemory.files,
                             ...child.workingMemory.files
@@ -203,18 +224,16 @@ export class SelfImprover {
                 }
             }
 
-            // 5. Execute normal tasks in dependency order
+            // 5. Execute normal tasks in dependency order, then parallel
             if (normalTasks.length > 0) {
                 const orderedNormalTasks = topologicalSort(normalTasks);
-                // Move them back into the queue in sorted order (they’re already there, but we just reorder)
-                // We'll replace the queue with only the unsorted ones
                 this.taskQueue.tasks = orderedNormalTasks.concat(
                     tasks.filter(t => t.subGoal && (t.status === 'DONE' || t.status === 'FAILED'))
                 );
                 this.taskQueue.nextId = Math.max(...this.taskQueue.tasks.map(t => t.id), 0) + 1;
             }
 
-            // 6. Review loop (only for normal tasks)
+            // 6. Review loop
             let cycles = 0;
             const MAX_CYCLES = 3;
             let allPassed = false;
@@ -223,14 +242,12 @@ export class SelfImprover {
                 cycles++;
                 this.onLog(`🔄 Cycle ${cycles}/${MAX_CYCLES}`);
 
-                // Reload memory (top‑level only)
                 if (depth === 0 && cycles > 1) {
                     this.workingMemory = await loadMemory(this, this.runId);
                 }
 
                 await executeAllParallel(this, 3);
 
-                // Save memory after execution (top‑level only)
                 if (depth === 0) {
                     await saveMemory(this, this.workingMemory, this.runId);
                 }
@@ -247,7 +264,7 @@ export class SelfImprover {
             const allDone = this.taskQueue.tasks.every(t => t.status === 'DONE');
 
             if (allDone && depth === 0) {
-                const prUrl = await createPR(this, goal);
+                const prUrl = await createPR(this, goal);   // uses this.branch (feature branch) as head
                 result.success = true;
                 result.prUrl = prUrl;
                 result.committedFiles = gatherCommittedFiles(this.taskQueue.tasks);
@@ -286,7 +303,6 @@ export class SelfImprover {
 
     pause() { this.pauseRequested = true; }
 
-    // ---------- task‑queue methods ----------
     _initTaskQueue(tasks) { initTaskQueue(this, tasks); }
     _getPendingTasks() { return getPendingTasks(this); }
     _getDoneTasks() { return getDoneTasks(this); }
@@ -297,9 +313,6 @@ export class SelfImprover {
     _findTask(id) { return findTask(this, id); }
 }
 
-// ---------- helpers ----------
-
-/** Shallow clone a WorkingMemory (for inheritance). */
 function cloneWorkingMemory(source) {
     const m = new WorkingMemory();
     m.goal = source.goal;
@@ -308,7 +321,6 @@ function cloneWorkingMemory(source) {
     return m;
 }
 
-/** Gather all committedFiles from tasks. */
 function gatherCommittedFiles(taskList) {
     const all = new Set();
     for (const t of taskList) {
@@ -317,7 +329,6 @@ function gatherCommittedFiles(taskList) {
     return [...all];
 }
 
-/** Simple topological sort using dependsOn. */
 function topologicalSort(tasks) {
     const byId = {};
     tasks.forEach(t => { byId[t.id] = t; });
@@ -327,7 +338,7 @@ function topologicalSort(tasks) {
 
     function visit(task) {
         if (visited.has(task.id)) return;
-        if (tempMark.has(task.id)) return; // cycle – ignore
+        if (tempMark.has(task.id)) return;
         tempMark.add(task.id);
         (task.dependsOn || []).forEach(depId => {
             const dep = byId[depId];
