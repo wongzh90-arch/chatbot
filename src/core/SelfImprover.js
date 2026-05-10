@@ -1,44 +1,27 @@
 /**
- * SelfImprover – Main orchestrator for self‑improvement runs.
- *
- *   - Hierarchical task decomposition: complex goals become sub‑goals.
- *   - Persistent memory across retries (top‑level only, scoped by run ID).
- *   - Sub‑goals inherit parent memory but do NOT persist separately.
- *   - Dependency ordering is enforced before normal task execution.
- *   - LLM calls are ≤20 s, staying within the confirmed Netlify 40‑s header timeout.
- *
- *   Phase 0C + 2C wiring now included:
- *     - ConversationMemory for cross‑run context
- *     - ErrorIngestion for stack trace injection
- *     - Original file contents stored for reviewer
+ * SelfImprover – Main orchestrator.
+ * Delegates to focused modules for setup, execution, and post‑run actions.
  */
-import { GitHubService } from '../services/github.js';
-import { LLMProvider } from '../services/llmProvider.js';
-import { PreferencesService } from '../services/PreferencesService.js';
+import { setupRun } from './orchestration/runSetup.js';
+import { runCycles } from './orchestration/cycleExecutor.js';
+import { runPostActions } from './orchestration/postRunActions.js';
+import { createPauseController } from './orchestration/pauseController.js';
+import { ClarificationQueue } from './orchestration/clarificationQueue.js';
+import { createPlan } from './planning/plannerFactory.js';
 import { runClarification } from './clarification.js';
-import { ensureManifest } from './manifestManager.js';
-import { chunkedBuildIndex } from './chunkedIndexer.js';
-import { agenticPlan } from './agenticPlanner.js';
-import { coordinatedPlan } from './coordinatedPlanner.js';
-import { hierarchicalPlan } from './hierarchicalPlanner.js';
-import { executeAllParallel } from './parallelExec.js';
-import { reviewAll } from './reviewer.js';
-import { createPR } from './prCreator.js';
-import { WorkingMemory } from './WorkingMemory.js';
-import { saveMemory, loadMemory, saveRunSummary } from './persistentMemory.js';
 import {
     initTaskQueue, getPendingTasks, getDoneTasks,
     markTaskDone, markTaskFailed, markTaskTodo, markTaskReviewPassed, findTask
 } from './taskQueue.js';
-import { SmokeTest } from '../services/smokeTest.js';
-import { ConversationMemory } from '../services/conversationMemory.js';   // new
-import { ErrorIngestion } from '../services/errorIngestion.js';           // new
+import { chunkedBuildIndex } from './chunkedIndexer.js';
+import { GitHubService } from '../services/github.js';
+import { saveMemory } from './persistentMemory.js';
 
 export class SelfImprover {
     constructor({ repo, branch, githubToken, provider, model, thinkingMode,
                   reasoningEffort, netlitySiteName,
                   onLog, onTaskUpdate, onRunComplete, onClarificationNeeded,
-                  preferences }) {
+                  preferences, onTokenUpdate }) {
         this.repo = repo;
         this.originalBranch = branch;
         this.branch = branch;
@@ -53,6 +36,7 @@ export class SelfImprover {
         this.onRunComplete = onRunComplete || (() => {});
         this.onClarificationNeeded = onClarificationNeeded || null;
         this.preferences = preferences || null;
+        this.onTokenUpdate = onTokenUpdate || (() => {});
 
         this.manifest = null;
         this.fileTree = null;
@@ -60,14 +44,14 @@ export class SelfImprover {
         this.taskQueue = null;
         this.currentGoal = null;
         this.discoveryCache = [];
-        this.workingMemory = new WorkingMemory();
+        this.workingMemory = null;
         this.parentGoal = null;
         this.parentWorkingMemory = null;
         this.runId = `run-${Date.now()}`;
         this.changeBranch = null;
-
-        // New services – created only for top‑level runs
         this.conversationMemory = null;
+        this.clarificationQueue = null;
+        this._pendingSRBlocks = null;
     }
 
     async fetchFileTree() {
@@ -106,7 +90,6 @@ export class SelfImprover {
             }
         }
 
-        // Add files explicitly mentioned in the goal (by filename or path)
         const fileTree = this.fileTree || [];
         for (const file of fileTree) {
             const fileName = file.path.split('/').pop();
@@ -125,7 +108,6 @@ export class SelfImprover {
             }
         }
 
-        // Fallback filename scan
         if (!index) {
             const scanExts = /\.(js|jsx|html|css|toml|json)$/;
             const skipPaths = /node_modules|\.min\.|package-lock|yarn\.lock/;
@@ -154,214 +136,131 @@ export class SelfImprover {
             return { success: false };
         }
 
-        // ---------- Cross‑run memory (top‑level only) ----------
-        if (depth === 0) {
-            if (!this.conversationMemory) {
-                this.conversationMemory = new ConversationMemory(this.repo, this.originalBranch);
+        // --- Setup ---
+        const { enrichedGoal } = await setupRun(this, goal, depth);
+        this.currentGoal = enrichedGoal;
+
+        // --- Clarification ---
+        if (depth === 0 && !this.clarificationQueue) {
+            this.clarificationQueue = new ClarificationQueue(
+                this.conversationMemory,
+                (questions) => {
+                    this.onLog('❓ Please answer these:\n' +
+                        questions.map((q, i) => `${i + 1}. ${q}`).join('\n'));
+                }
+            );
+        }
+
+        // Try to restore pending questions (after page reload)
+        const restoredPromise = this.clarificationQueue?.restoreFromMemory();
+        if (restoredPromise) {
+            const answers = await restoredPromise;
+            if (answers) {
+                goal = `${goal}\n\nClarifications from user:\n${answers}`;
+                this.currentGoal = goal;
             }
-            this.conversationMemory.startRun(goal);
-        }
-
-        // ---------- Error ingestion (parse stack traces) ----------
-        let enrichedGoal = goal;
-        const errorContext = ErrorIngestion.getErrorContext(goal);
-        if (errorContext) {
-            this.onLog('🪵 Detected error stack trace – prioritising mentioned files');
-            enrichedGoal = `[ERROR CONTEXT]\n${errorContext}\n\nUser goal:\n${goal}`;
-        }
-
-        // ---------- Load preferences (top‑level only) ----------
-        if (depth === 0 && !this.preferences) {
-            try {
-                this.preferences = await PreferencesService.load(this.repo, this.originalBranch, this.githubToken);
-            } catch { /* stay empty */ }
-        }
-
-        // ---------- Create feature branch (top‑level only) ----------
-        if (depth === 0 && !this.changeBranch) {
-            this.changeBranch = `${this.originalBranch}-self-improve-${Date.now()}`;
-            try {
-                await GitHubService.createBranch(this.repo, this.changeBranch, this.originalBranch, this.githubToken);
-                this.branch = this.changeBranch;
-                this.onLog(`🌿 Working on branch: ${this.changeBranch}`);
-            } catch (e) {
-                this.onLog(`⚠️ Could not create branch: ${e.message}. Continuing on ${this.branch}.`);
+        } else {
+            const clarificationAnswers = await runClarification(this, enrichedGoal);
+            if (clarificationAnswers !== enrichedGoal) {
+                this.currentGoal = clarificationAnswers;
             }
         }
 
-        let result = { success: false, committedFiles: [] };
+        this.onLog(`🚀 Goal: ${goal}${depth > 0 ? ` (sub‑goal, depth ${depth})` : ''}`);
 
-        try {
-            // ---------- Setup working memory ----------
-            if (depth === 0) {
-                this.workingMemory = await loadMemory(this, this.runId);
-            } else {
-                this.workingMemory = this.parentWorkingMemory
-                    ? cloneWorkingMemory(this.parentWorkingMemory)
-                    : new WorkingMemory();
-                this.workingMemory.notes.push(`Parent goal: ${this.parentGoal || '(none)'}`);
-            }
-            this.workingMemory.goal = enrichedGoal;
+        // --- Plan ---
+        const planResult = await createPlan(this, this.currentGoal);
+        if (!planResult?.tasks?.length) {
+            this.onLog('❌ No tasks generated');
+            if (depth === 0) this.conversationMemory.addFailedAttempt('No tasks generated');
+            return { success: false };
+        }
 
-            // 1. Clarification (uses original goal string without error context)
-            const clarifiedGoal = await runClarification(this, enrichedGoal);
-            this.currentGoal = clarifiedGoal;
-            this.onLog(`🚀 Goal: ${goal}${depth > 0 ? ` (sub‑goal, depth ${depth})` : ''}`);
+        this.conversationMemory?.setPhase('executing');
+        this.conversationMemory?.setLastAction('Execution started');
 
-            // 2. File tree & manifest
-            await ensureManifest(this);
-            if (!this.fileTree) await this.fetchFileTree();
-            await this._discoverFiles(clarifiedGoal);
+        // --- Execute sub‑goals sequentially, then normal tasks ---
+        const tasks = this.taskQueue.tasks;
+        const normalTasks = [];
 
-            // 3. Plan (hierarchical)
-            const normalPlanner = this.discoveryCache.length > 10 ? coordinatedPlan : agenticPlan;
-            const planResult = await hierarchicalPlan(this, clarifiedGoal, normalPlanner);
-            if (!planResult?.tasks?.length) {
-                this.onLog('❌ No tasks generated');
-                if (depth === 0) this.conversationMemory.addFailedAttempt('No tasks generated');
-                return result;
-            }
+        for (const task of tasks) {
+            if (this.pauseRequested) break;
 
-            // 4. Execute tasks – sub‑goals first, then normal tasks
-            const tasks = this.taskQueue.tasks;
-            const normalTasks = [];
+            if (task.subGoal) {
+                this.onLog(`\n🔽 Starting sub‑goal: "${task.subGoal}"`);
+                const child = new SelfImprover({
+                    repo: this.repo, branch: this.branch, githubToken: this.githubToken,
+                    provider: this.provider, model: this.model,
+                    thinkingMode: this.thinkingMode, reasoningEffort: this.reasoningEffort,
+                    netlitySiteName: this.netlitySiteName,
+                    onLog: (msg) => this.onLog(`  [sub] ${msg}`),
+                    onTaskUpdate: () => {},
+                    onRunComplete: () => {},
+                    onClarificationNeeded: this.onClarificationNeeded,
+                    preferences: this.preferences
+                });
+                child.parentGoal = goal;
+                child.parentWorkingMemory = this.workingMemory;
+                child.fileTree = this.fileTree;
+                child.discoveryCache = this.discoveryCache;
+                child.changeBranch = this.changeBranch;
+                child.branch = this.branch;
+                child.conversationMemory = this.conversationMemory;
 
-            for (const task of tasks) {
-                if (this.pauseRequested) break;
-
-                if (task.subGoal) {
-                    // ---- SUB‑GOAL (recursive) ----
-                    this.onLog(`\n🔽 Starting sub‑goal: "${task.subGoal}"`);
-                    const child = new SelfImprover({
-                        repo: this.repo,
-                        branch: this.branch,
-                        githubToken: this.githubToken,
-                        provider: this.provider,
-                        model: this.model,
-                        thinkingMode: this.thinkingMode,
-                        reasoningEffort: this.reasoningEffort,
-                        netlitySiteName: this.netlitySiteName,
-                        onLog: (msg) => this.onLog(`  [sub] ${msg}`),
-                        onTaskUpdate: () => {},
-                        onRunComplete: () => {},
-                        onClarificationNeeded: this.onClarificationNeeded,
-                        preferences: this.preferences
-                    });
-                    child.parentGoal = goal;
-                    child.parentWorkingMemory = this.workingMemory;
-                    child.fileTree = this.fileTree;
-                    child.discoveryCache = this.discoveryCache;
-                    child.changeBranch = this.changeBranch;
-                    child.branch = this.branch;
-                    // Inherit conversation memory (read‑only for sub‑agents)
-                    child.conversationMemory = this.conversationMemory;
-
-                    const subResult = await child.runGoal(task.subGoal, depth + 1);
-
-                    if (subResult.success) {
-                        markTaskDone(this, task.id);
-                        task.committedFiles = subResult.committedFiles || [];
-                        this.workingMemory.files = {
-                            ...this.workingMemory.files,
-                            ...child.workingMemory.files
-                        };
-                        this.workingMemory.notes.push(`Sub‑goal "${task.title}" done`);
-                        this.onLog(`✅ Sub‑goal completed: ${task.title}`);
-                    } else {
-                        markTaskFailed(this, task.id);
-                        this.onLog(`❌ Sub‑goal failed: ${task.title}`);
-                    }
-                    this.onTaskUpdate();
+                const subResult = await child.runGoal(task.subGoal, depth + 1);
+                if (subResult.success) {
+                    markTaskDone(this, task.id);
+                    task.committedFiles = subResult.committedFiles || [];
+                    this.workingMemory.files = { ...this.workingMemory.files, ...child.workingMemory.files };
+                    this.workingMemory.notes.push(`Sub‑goal "${task.title}" done`);
+                    this.onLog(`✅ Sub‑goal completed: ${task.title}`);
                 } else {
-                    normalTasks.push(task);
+                    markTaskFailed(this, task.id);
+                    this.onLog(`❌ Sub‑goal failed: ${task.title}`);
                 }
+                this.onTaskUpdate();
+            } else {
+                normalTasks.push(task);
             }
-
-            // 5. Execute normal tasks
-            if (normalTasks.length > 0) {
-                const orderedNormalTasks = topologicalSort(normalTasks);
-                this.taskQueue.tasks = orderedNormalTasks.concat(
-                    tasks.filter(t => t.subGoal && (t.status === 'DONE' || t.status === 'FAILED'))
-                );
-                this.taskQueue.nextId = Math.max(...this.taskQueue.tasks.map(t => t.id), 0) + 1;
-            }
-
-            // 6. Review loop (now uses before/after comparison)
-            let cycles = 0;
-            const MAX_CYCLES = 3;
-            let allPassed = false;
-
-            while (cycles < MAX_CYCLES && !this.pauseRequested) {
-                cycles++;
-                this.onLog(`🔄 Cycle ${cycles}/${MAX_CYCLES}`);
-
-                if (depth === 0 && cycles > 1) {
-                    this.workingMemory = await loadMemory(this, this.runId);
-                }
-
-                await executeAllParallel(this, 3);
-
-                if (depth === 0) {
-                    await saveMemory(this, this.workingMemory, this.runId);
-                }
-
-                const review = await reviewAll(this);
-                if (review.passed) {
-                    allPassed = true;
-                    break;
-                }
-                this.onLog(`⚠️ ${review.issues} issue(s) found – retrying`);
-            }
-
-            // 7. PR & summary (top‑level only)
-            const allDone = this.taskQueue.tasks.every(t => t.status === 'DONE');
-
-            if (allDone && depth === 0) {
-                const prUrl = await createPR(this, goal);
-                result.success = true;
-                result.prUrl = prUrl;
-                result.committedFiles = gatherCommittedFiles(this.taskQueue.tasks);
-                this.onLog(`✅ PR: ${prUrl}`);
-
-                await saveRunSummary(this, goal, true, prUrl);
-
-                // Record success in conversation memory
-                this.conversationMemory.addDecision('Completed: ' + goal);
-                this.conversationMemory.setPhase('done');
-
-                if (this.netlitySiteName) {
-                    this.onLog('🌐 Waiting for Netlify deploy preview...');
-                    try {
-                        const prNumber = parseInt(prUrl.split('/pull/')[1], 10);
-                        const smoke = await SmokeTest.testDeployPreview(
-                            this.repo, this.branch, this.githubToken, prNumber,
-                            this.netlitySiteName
-                        );
-                        this.onLog(smoke.success ? `✅ Smoke test passed: ${smoke.url}` : `⚠️ Smoke test failed: ${smoke.error}`);
-                    } catch (e) { this.onLog(`⚠️ Smoke test error: ${e.message}`); }
-                }
-            } else if (allDone) {
-                result.success = true;
-                result.committedFiles = gatherCommittedFiles(this.taskQueue.tasks);
-            }
-
-            // Record failure if top‑level run didn't succeed
-            if (!result.success && depth === 0) {
-                this.conversationMemory.addFailedAttempt('Run failed for goal: ' + goal);
-            }
-
-            return result;
-
-        } catch (err) {
-            this.onLog(`❌ Run error: ${err.message}`);
-            if (depth === 0) {
-                await saveMemory(this, this.workingMemory, this.runId);
-                this.conversationMemory.addFailedAttempt('Exception: ' + err.message);
-            }
-            return result;
-        } finally {
-            this.onRunComplete(result);
         }
+
+        if (normalTasks.length > 0) {
+            const ordered = topologicalSort(normalTasks);
+            this.taskQueue.tasks = ordered.concat(
+                tasks.filter(t => t.subGoal && (t.status === 'DONE' || t.status === 'FAILED'))
+            );
+            this.taskQueue.nextId = Math.max(...this.taskQueue.tasks.map(t => t.id), 0) + 1;
+        }
+
+        // --- Execute/Review cycles ---
+        const { allPassed } = await runCycles(this, depth);
+
+        // --- Post‑run ---
+        let result = await runPostActions(this, goal, depth, allPassed);
+
+        // If regressions added new tasks, re‑run cycles
+        if (!result.success && this.taskQueue.tasks.some(t => t.status === 'TODO')) {
+            const { allPassed: secondPass } = await runCycles(this, depth);
+            result = await runPostActions(this, goal, depth, secondPass);
+        }
+
+        // Fallback: if postRunActions didn't set success but all tasks done
+        if (!result.success) {
+            const allDone = this.taskQueue.tasks.every(
+                t => t.status === 'DONE' && t.subGoal == null
+            );
+            if (allDone) {
+                result.success = true;
+                result.committedFiles = gatherCommittedFiles(this.taskQueue.tasks);
+            }
+        }
+
+        if (!result.success && depth === 0) {
+            this.conversationMemory?.addFailedAttempt('Run failed for goal: ' + goal);
+        }
+
+        try { this.onRunComplete(result); } catch {}
+        return result;
     }
 
     pause() { this.pauseRequested = true; }
@@ -376,29 +275,12 @@ export class SelfImprover {
     _findTask(id) { return findTask(this, id); }
 }
 
-function cloneWorkingMemory(source) {
-    const m = new WorkingMemory();
-    m.goal = source.goal;
-    m.files = { ...source.files };
-    m.notes = [...source.notes];
-    return m;
-}
-
-function gatherCommittedFiles(taskList) {
-    const all = new Set();
-    for (const t of taskList) {
-        (t.committedFiles || []).forEach(f => all.add(f));
-    }
-    return [...all];
-}
-
 function topologicalSort(tasks) {
     const byId = {};
     tasks.forEach(t => { byId[t.id] = t; });
     const sorted = [];
     const visited = new Set();
     const tempMark = new Set();
-
     function visit(task) {
         if (visited.has(task.id)) return;
         if (tempMark.has(task.id)) return;
@@ -411,7 +293,14 @@ function topologicalSort(tasks) {
         visited.add(task.id);
         sorted.push(task);
     }
-
     tasks.forEach(t => visit(t));
     return sorted;
+}
+
+function gatherCommittedFiles(taskList) {
+    const all = new Set();
+    for (const t of taskList) {
+        (t.committedFiles || []).forEach(f => all.add(f));
+    }
+    return [...all];
 }
