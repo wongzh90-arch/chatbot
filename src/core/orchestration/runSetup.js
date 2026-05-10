@@ -36,14 +36,21 @@ export async function setupRun(ctx, goal, depth) {
 
     // Create feature branch (top‑level only)
     if (depth === 0 && !ctx.changeBranch) {
-        ctx.changeBranch = `${ctx.originalBranch}-self-improve-${Date.now()}`;
+        const newBranch = `${ctx.originalBranch}-self-improve-${Date.now()}`;
         try {
-            await GitHubService.createBranch(ctx.repo, ctx.changeBranch, ctx.originalBranch, ctx.githubToken);
-            ctx.branch = ctx.changeBranch;
+            await GitHubService.createBranch(ctx.repo, newBranch, ctx.originalBranch, ctx.githubToken);
+            ctx.changeBranch = newBranch;
+            ctx.branch = newBranch;
             ctx.onLog(`🌿 Working on branch: ${ctx.changeBranch}`);
         } catch (e) {
-            ctx.onLog(`⚠️ Could not create branch: ${e.message}. Continuing on ${ctx.branch}.`);
+            ctx.onLog(`⚠️ Could not create branch: ${e.message}.`);
+            ctx.changeBranch = null;  // no feature branch – fall back to original
         }
+    }
+
+    // Small delay after branch creation to allow GitHub ref to propagate
+    if (depth === 0 && ctx.changeBranch) {
+        await new Promise(r => setTimeout(r, 1000));
     }
 
     // Setup working memory
