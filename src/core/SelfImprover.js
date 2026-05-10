@@ -15,7 +15,7 @@ export class SelfImprover {
     constructor({ repo, branch, githubToken, provider, model, thinkingMode,
                   reasoningEffort, netlitySiteName,
                   onLog, onTaskUpdate, onRunComplete, onClarificationNeeded,
-                  preferences, onTokenUpdate, onPhaseChange, onFileChange, onProgress }) {
+                  preferences, onTokenUpdate, onPhaseChange, onFileChange }) {
         this.repo = repo;
         this.originalBranch = branch;
         this.branch = branch;
@@ -28,12 +28,11 @@ export class SelfImprover {
         this.onLog = onLog || (() => {});
         this.onTaskUpdate = onTaskUpdate || (() => {});
         this.onRunComplete = onRunComplete || (() => {});
-        this.onClarificationNeeded = onClarificationNeeded || null;
+        // onClarificationNeeded is no longer used; kept only for backward compat
         this.preferences = preferences || null;
         this.onTokenUpdate = onTokenUpdate || (() => {});
         this.onPhaseChange = onPhaseChange || (() => {});
         this.onFileChange = onFileChange || (() => {});
-        this.onProgress = onProgress || (() => {});
 
         this.manifest = null;
         this.fileTree = null;
@@ -47,6 +46,8 @@ export class SelfImprover {
         this.runId = `run-${Date.now()}`;
         this.changeBranch = null;
         this.conversationMemory = null;
+
+        // New queue – exposed so UI can call resolve() directly
         this.clarificationQueue = null;
         this._pendingSRBlocks = null;
     }
@@ -133,36 +134,41 @@ export class SelfImprover {
             return { success: false };
         }
 
-        // ── Setup ──
+        // Setup
         const { enrichedGoal } = await setupRun(this, goal, depth);
         this.currentGoal = enrichedGoal;
 
-        // ── Clarification ──
+        // ── Clarification (using ClarificationQueue) ──
         if (depth === 0 && !this.clarificationQueue) {
             this.clarificationQueue = new ClarificationQueue(
                 this.conversationMemory,
                 (questions) => {
-                    this.onLog('❓ ' + questions.map((q, i) => `${i + 1}. ${q}`).join('\n'));
+                    // The questions are already displayed via onLog, no extra UI needed
                 }
             );
         }
 
-        let clarificationAnswers = '';
-        const restoredPromise = this.clarificationQueue?.restoreFromMemory();
-        if (restoredPromise) {
-            clarificationAnswers = await restoredPromise;
-            if (clarificationAnswers) {
-                this.currentGoal = `${enrichedGoal}\n\nClarifications from user:\n${clarificationAnswers}`;
-                this.onLog('💬 Clarification answers loaded from memory');
+        // Check if there are pending questions from a previous session (page reload)
+        if (depth === 0 && this.clarificationQueue.isPending()) {
+            const restoredPromise = this.clarificationQueue.restoreFromMemory();
+            if (restoredPromise) {
+                const answers = await restoredPromise;
+                if (answers) {
+                    this.currentGoal = `${enrichedGoal}\n\nClarifications from user:\n${answers}`;
+                    this.onLog('💬 Clarification answers loaded from memory');
+                }
             }
         } else {
+            // Generate clarification questions
             const { questions } = await generateClarificationQuestions(this, enrichedGoal);
             if (questions && questions.length) {
                 this.onPhaseChange?.('clarifying', 'Awaiting answers...');
+                this.onLog('❓ Please answer these:\n' +
+                    questions.map((q, i) => `${i + 1}. ${q}`).join('\n'));
+                // Wait for user answer via the queue (the UI will call resolve())
                 const userResponse = await this.clarificationQueue.request(questions, 300000);
                 if (userResponse && userResponse.trim()) {
-                    clarificationAnswers = userResponse.trim();
-                    this.currentGoal = `${enrichedGoal}\n\nClarifications from user:\n${clarificationAnswers}`;
+                    this.currentGoal = `${enrichedGoal}\n\nClarifications from user:\n${userResponse.trim()}`;
                     this.onLog('✅ Clarification received – continuing');
                 } else {
                     this.onLog('⏰ No clarification received – continuing with original goal');
@@ -173,7 +179,7 @@ export class SelfImprover {
         this.onLog(`🚀 Goal: ${this.currentGoal}${depth > 0 ? ` (sub‑goal, depth ${depth})` : ''}`);
         this.onPhaseChange?.('planning', 'Planning...');
 
-        // ── Plan ──
+        // Plan
         const planResult = await createPlan(this, this.currentGoal);
         if (!planResult?.tasks?.length) {
             this.onLog('❌ No tasks generated');
@@ -185,7 +191,7 @@ export class SelfImprover {
         this.conversationMemory?.setLastAction('Execution started');
         this.onPhaseChange?.('executing', 'Executing...');
 
-        // ── Execute sub‑goals sequentially, then normal tasks ──
+        // Execute sub‑goals sequentially, then normal tasks
         const tasks = this.taskQueue.tasks;
         const normalTasks = [];
 
@@ -202,7 +208,7 @@ export class SelfImprover {
                     onLog: (msg) => this.onLog(`  [sub] ${msg}`),
                     onTaskUpdate: () => {},
                     onRunComplete: () => {},
-                    onClarificationNeeded: this.onClarificationNeeded,
+                    onClarificationNeeded: undefined, // sub‑goals don't ask independently
                     preferences: this.preferences,
                 });
                 child.parentGoal = goal;
@@ -238,43 +244,42 @@ export class SelfImprover {
             this.taskQueue.nextId = Math.max(...this.taskQueue.tasks.map(t => t.id), 0) + 1;
         }
 
-        // ── Execute/review cycles ──
+        // Execute/review cycles
         const { allPassed } = await runCycles(this, depth);
 
-        // ── Post‑run actions ──
+        // Post‑run actions
         let result = await runPostActions(this, goal, depth, allPassed);
 
+        // If regressions added new tasks, re‑run
         if (!result.success && this.taskQueue.tasks.some(t => t.status === 'TODO')) {
             const { allPassed: secondPass } = await runCycles(this, depth);
             result = await runPostActions(this, goal, depth, secondPass);
         }
 
+        // Fallback success check
         if (!result.success) {
-            const allDone = this.taskQueue.tasks.every(
-                t => t.status === 'DONE' && !t.subGoal
-            );
+            const allDone = this.taskQueue.tasks.every(t => t.status === 'DONE' && !t.subGoal);
             if (allDone) {
                 result.success = true;
                 result.committedFiles = gatherCommittedFiles(this.taskQueue.tasks);
             }
         }
 
+        // File change notifications
         if (result.committedFiles?.length) {
             for (const file of result.committedFiles) {
                 this.onFileChange?.(file, 'committed', null);
             }
         }
+
         if (depth === 0) {
             if (!result.success) {
                 this.conversationMemory?.addFailedAttempt('Run failed for goal: ' + goal);
             }
         }
 
-        if (result.success) {
-            this.onPhaseChange?.('done', 'Run completed');
-        } else {
-            this.onPhaseChange?.('failed', 'Run failed');
-        }
+        this.onPhaseChange?.(result.success ? 'done' : 'failed',
+                             result.success ? 'Run completed' : 'Run failed');
 
         return result;
     }
@@ -290,6 +295,8 @@ export class SelfImprover {
     _markTaskReviewPassed(id) { markTaskReviewPassed(this, id); }
     _findTask(id) { return findTask(this, id); }
 }
+
+// ─── Helpers ───
 
 function topologicalSort(tasks) {
     const byId = {};
@@ -322,7 +329,6 @@ function gatherCommittedFiles(taskList) {
 }
 
 async function generateClarificationQuestions(ctx, goal) {
-    const prefs = ctx.preferences?.clarification || {};
     const prompt = `You are helping an autonomous coding agent understand a user request before it starts making code changes.
 The user's goal is: "${goal}"
 Repository: ${ctx.repo}, branch: ${ctx.branch}
