@@ -137,6 +137,7 @@ Goal: ${memory.goal}
     prompt += `Observations:\n${memory.notes.map(n => `- ${n}`).join('\n')}\n\n`;
 
     prompt += `Now, provide the complete new file contents inside <skill name="update_editor" file="path">...</skill> blocks.
+CRITICAL: The file content you output MUST be identical to the FULL FILE shown above except for the specific change described below. Do NOT remove, reorder, reformat, or rewrite any existing code, comments, or whitespace. Keep every line exactly as it appears in the original.
 You may also REQUEST more files if you need them: "READ: path/to/file".
 If you are done, say "DONE".`;
     return prompt;
