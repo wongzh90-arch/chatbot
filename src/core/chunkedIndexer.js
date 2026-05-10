@@ -37,7 +37,13 @@ export async function chunkedBuildIndex(ctx) {
     const groups = chunk(scannable, 5);   // smaller chunks = faster replies
     const mergedIndex = { files: {} };
 
+    // Progress report
+    ctx.onLog(`🔢 Total files to index: ${scannable.length}. Groups: ${groups.length}`);
+
     for (const group of groups) {
+        const groupIndex = groups.indexOf(group) + 1;
+        ctx.onLog(`🔍 Indexing group ${groupIndex} of ${groups.length} (${group.length} files)…`);
+
         // Gather file contents for this chunk
         const fileContents = [];
         for (const f of group) {
@@ -52,7 +58,10 @@ export async function chunkedBuildIndex(ctx) {
             } catch { /* skip unreachable files */ }
         }
 
-        if (!fileContents.length) continue;
+        if (!fileContents.length) {
+            ctx.onLog(`⏭ Group ${groupIndex} empty, skipped`);
+            continue;
+        }
 
         const prompt = `For each file, extract 5‑10 specific keywords AND a one‑sentence summary (first 500 chars). Return JSON:
 { "files": { "path/to/file": { "keywords": ["kw1","kw2"], "summary": "..." } } }
@@ -76,7 +85,7 @@ ${fileContents.map(f => `### ${f.path}\n${f.content}`).join('\n\n')}`;
             content = result.content;
             success = true;
         } catch (err) {
-            ctx.onLog(`⚠️ First attempt failed (${err.message}). Trying with fast model...`);
+            ctx.onLog(`⚠️ Group ${groupIndex}: First attempt failed (${err.message}). Trying with fast model...`);
         }
 
         // Attempt 2 (fallback): cheap fast model with longer timeout
@@ -91,7 +100,7 @@ ${fileContents.map(f => `### ${f.path}\n${f.content}`).join('\n\n')}`;
                 content = result.content;
                 success = true;
             } catch (err) {
-                ctx.onLog(`❌ Fallback also failed: ${err.message}. Skipping chunk of ${group.length} files.`);
+                ctx.onLog(`❌ Group ${groupIndex}: Fallback also failed: ${err.message}. Skipping this group.`);
                 continue;
             }
         }
@@ -106,8 +115,9 @@ ${fileContents.map(f => `### ${f.path}\n${f.content}`).join('\n\n')}`;
                     summary: data.summary || ''
                 };
             }
+            ctx.onLog(`✔ Group ${groupIndex} indexed successfully`);
         } catch (e) {
-            ctx.onLog(`⚠️ Chunk parse error: ${e.message}. Skipping chunk of ${group.length} files.`);
+            ctx.onLog(`⚠️ Group ${groupIndex}: Chunk parse error: ${e.message}. Skipping.`);
         }
     }
 
