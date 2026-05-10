@@ -1,7 +1,7 @@
 /**
  * chunkedIndexer – Builds a keyword index for large repositories by processing
- * files in groups of 10. For each file, extracts 5‑10 keywords and also stores
- * a short summary (first 500 chars). All LLM calls are fast‑completion.
+ * files in groups of 5. For each file, extracts 5‑10 keywords and also stores
+ * a short summary (first 500 chars). Robust JSON extraction with retry on timeout.
  * The resulting keywords.json is committed back to the repo.
  */
 import { GitHubService } from '../services/github.js';
@@ -15,7 +15,7 @@ function extractJsonObject(text) {
     const cleaned = text
         .replace(/```json|```/g, '')     // drop markdown fences
         .replace(/\/\/[^\n]*/g, '')      // remove single-line comments
-        .replace(/,\s*}/g, '}')          // remove trailing commas
+        .replace(/,\s*}/g, '}')          // remove trailing commas in objects
         .replace(/,\s*]/g, ']')          // remove trailing commas in arrays
         .trim();
 
@@ -34,10 +34,11 @@ export async function chunkedBuildIndex(ctx) {
         !/node_modules|\.min\.|package-lock|yarn\.lock/.test(f.path)
     );
 
-    const groups = chunk(scannable, 10);
+    const groups = chunk(scannable, 5);   // smaller chunks = faster replies
     const mergedIndex = { files: {} };
 
     for (const group of groups) {
+        // Gather file contents for this chunk
         const fileContents = [];
         for (const f of group) {
             try {
@@ -46,9 +47,9 @@ export async function chunkedBuildIndex(ctx) {
                 );
                 fileContents.push({
                     path: f.path,
-                    content: content.slice(0, 2000)
+                    content: content.slice(0, 2000)   // keep prompt short
                 });
-            } catch { /* skip */ }
+            } catch { /* skip unreachable files */ }
         }
 
         if (!fileContents.length) continue;
@@ -58,17 +59,44 @@ export async function chunkedBuildIndex(ctx) {
 Files:
 ${fileContents.map(f => `### ${f.path}\n${f.content}`).join('\n\n')}`;
 
-        // Use the selected model for better JSON quality
-        const { content } = await LLMProvider.chatCompletion({
-            provider: ctx.provider,
-            model: ctx.model,               // use the user's chosen model (e.g. deepseek-v4-flash)
-            messages: [],
-            systemPrompt: 'You are a code indexer. Output only valid JSON, no markdown.',
-            userContent: prompt,
-            thinkingMode: false,
-            timeoutMs: 20000
-        });
+        // Attempt 1: use the user’s selected model (may be slower but smarter)
+        let content = null;
+        let success = false;
 
+        try {
+            const result = await LLMProvider.chatCompletion({
+                provider: ctx.provider,
+                model: ctx.model,
+                messages: [],
+                systemPrompt: 'You are a code indexer. Output only valid JSON, no markdown.',
+                userContent: prompt,
+                thinkingMode: false,
+                timeoutMs: 30000            // 30 seconds for normal model
+            });
+            content = result.content;
+            success = true;
+        } catch (err) {
+            ctx.onLog(`⚠️ First attempt failed (${err.message}). Trying with fast model...`);
+        }
+
+        // Attempt 2 (fallback): cheap fast model with longer timeout
+        if (!success) {
+            try {
+                const result = await LLMProvider.fastCompletion({
+                    provider: ctx.provider,
+                    messages: [],
+                    userContent: prompt,
+                    timeoutMs: 35000         // 35 seconds for fallback
+                });
+                content = result.content;
+                success = true;
+            } catch (err) {
+                ctx.onLog(`❌ Fallback also failed: ${err.message}. Skipping chunk of ${group.length} files.`);
+                continue;
+            }
+        }
+
+        // Parse the response
         try {
             const jsonStr = extractJsonObject(content);
             const partial = JSON.parse(jsonStr);
@@ -80,11 +108,10 @@ ${fileContents.map(f => `### ${f.path}\n${f.content}`).join('\n\n')}`;
             }
         } catch (e) {
             ctx.onLog(`⚠️ Chunk parse error: ${e.message}. Skipping chunk of ${group.length} files.`);
-            // Continue with next chunk
         }
     }
 
-    // Commit merged index
+    // Commit the merged index to the repo
     const fileMap = {
         'keywords.json': { content: JSON.stringify(mergedIndex, null, 2), sha: null }
     };
@@ -93,7 +120,8 @@ ${fileContents.map(f => `### ${f.path}\n${f.content}`).join('\n\n')}`;
             ctx.repo, ctx.branch, 'keywords.json', ctx.githubToken
         );
         fileMap['keywords.json'].sha = existing.sha;
-    } catch {}
+    } catch { /* file doesn't exist yet */ }
+
     await GitHubService.commitMultipleFiles(
         ctx.repo, ctx.branch, fileMap,
         'chore: chunked keyword index', ctx.githubToken
