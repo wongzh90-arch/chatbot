@@ -1,7 +1,7 @@
 /**
  * agenticExecutor – Executes a single task using a read‑before‑write loop.
  * The LLM may ask to read additional files before emitting the final code block.
- * All calls are small and fast, avoiding timeout.
+ * The parser now recognises skill blocks directly — no “CODE:” prefix required.
  */
 import { LLMProvider } from '../services/llmProvider.js';
 import { GitHubService } from '../services/github.js';
@@ -16,26 +16,24 @@ export async function executeTaskAgentic(ctx, task) {
     const targetFiles = task.files || [];
     memory.notes.push(`Must modify: [${targetFiles.join(', ')}]`);
 
-    // Pre‑load target files to get SHAs for commit
+    // Pre‑load target files to get SHAs and full content
     const shaMap = {};
-    const fullContents = {};   // store full content for prompt
+    const fullContents = {};
     for (const path of targetFiles) {
         try {
             const { content, sha } = await GitHubService.loadFileContent(
                 ctx.repo, ctx.branch, path, ctx.githubToken
             );
-            memory.addFile(path, content, `Target file (already present): ${content.slice(0, 200)}`);
+            memory.addFile(path, content, `Target file (already loaded): ${content.slice(0, 200)}`);
             shaMap[path] = sha;
-            fullContents[path] = content;   // keep full for the prompt
+            fullContents[path] = content;
         } catch {
             memory.notes.push(`Could not load ${path}`);
         }
     }
 
-    // Build a prompt that includes the actual file contents
     for (let turn = 0; turn < 8; turn++) {
         const prompt = buildExecutionPrompt(memory, fullContents);
-        // Use the same model as the planner for more accuracy
         const { content } = await LLMProvider.chatCompletion({
             provider: ctx.provider,
             model: ctx.model,
@@ -60,8 +58,9 @@ export async function executeTaskAgentic(ctx, task) {
             memory.addFile(action.path, fileContent, summary);
             memory.notes.push(`Read ${action.path}: ${summary}`);
             fullContents[action.path] = fileContent;
+            ctx.onLog(`📖 Read ${action.path}: ${summary}`);
         } else if (action.type === 'code') {
-            // The reply should contain <skill name="update_editor" ...> blocks
+            // Extract skill blocks from the reply
             const { actions } = processAgentSkills(content);
             const blocks = actions.updateEditorBlocks;
             if (blocks.length) {
@@ -75,7 +74,7 @@ export async function executeTaskAgentic(ctx, task) {
                     };
                 }
 
-                // Optional quick lint check (fail open on timeout)
+                // Optional lint/syntax check (fail open on timeout)
                 const lintable = {};
                 for (const [path, { content: fileContent }] of Object.entries(fileMap)) {
                     if (path.endsWith('.js') || path.endsWith('.jsx'))
@@ -109,7 +108,9 @@ export async function executeTaskAgentic(ctx, task) {
             ctx.onLog('✅ Agent marked task as done');
             break;
         } else {
-            ctx.onLog(`❓ Unknown action from LLM: ${content.slice(0, 200)}`);
+            // Unknown reply — log it and continue
+            ctx.onLog(`📝 Agent note: ${content.slice(0, 200)}`);
+            memory.notes.push(`Agent said: ${content.slice(0, 200)}`);
         }
     }
     ctx.onLog('❌ Executor ran out of turns');
@@ -117,10 +118,11 @@ export async function executeTaskAgentic(ctx, task) {
 }
 
 function buildExecutionPrompt(memory, fullContents) {
-    // Build the context: full content of target files, summaries of others
-    let prompt = `You are implementing a code change. ${memory.goal}\n\n`;
+    let prompt = `You are implementing a code change.
+Goal: ${memory.goal}
 
-    // Full content of files we already have
+`;
+    // Show full content of files we have
     const fileEntries = Object.entries(memory.files);
     const targetPaths = Object.keys(fullContents);
     for (const [path, data] of fileEntries) {
@@ -131,22 +133,29 @@ function buildExecutionPrompt(memory, fullContents) {
         }
     }
 
-    prompt += `Observations:\n` + memory.notes.map(n => `- ${n}`).join('\n') + '\n\n';
+    prompt += `Observations:\n${memory.notes.map(n => `- ${n}`).join('\n')}\n\n`;
 
-    prompt += `Choose exactly one action:
-- READ: path/to/file   (to inspect a file)
-- CODE: (output one or more <skill name="update_editor" file="...">...</skill> blocks with the complete new file contents)
-- DONE   (if the change is already committed)
-Output only the action, no other text.`;
+    prompt += `Now, provide the complete new file contents inside <skill name="update_editor" file="path">...</skill> blocks.
+You may also REQUEST more files if you need them: "READ: path/to/file".
+If you are done, say "DONE".`;
     return prompt;
 }
 
+/**
+ * Detect the type of agent reply.
+ * Priority: if it contains a skill block → code.
+ * Otherwise check for READ: or DONE.
+ */
 function parseAgentAction(text) {
     const t = text.trim();
+    // Check for skill block first (most important)
+    if (/<skill\s+name=["']update_editor["']/.test(t)) {
+        return { type: 'code' };
+    }
     if (t.toLowerCase().startsWith('done')) return { type: 'done' };
-    if (t.toLowerCase().startsWith('code')) return { type: 'code' };
     const readMatch = t.match(/^READ:\s*(\S+)/i);
     if (readMatch) return { type: 'read', path: readMatch[1] };
+    // fallback: unknown
     return { type: 'unknown' };
 }
 
