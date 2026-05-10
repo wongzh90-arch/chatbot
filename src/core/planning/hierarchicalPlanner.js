@@ -2,8 +2,8 @@
  * hierarchicalPlanner – Extends the existing planners with the ability to
  * decompose a complex goal into sub‑goals.
  */
-import { LLMProvider } from '../services/llmProvider.js';
-import { initTaskQueue } from './taskQueue.js';
+import { LLMProvider } from '../../services/llmProvider.js';
+import { initTaskQueue } from '../taskQueue.js';
 
 export async function hierarchicalPlan(ctx, goal, normalPlan) {
     const decision = await shouldDecompose(ctx, goal);
