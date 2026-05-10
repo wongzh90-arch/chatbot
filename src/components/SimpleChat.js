@@ -3,7 +3,6 @@ import { useWorkspaceStore } from '../stores/workspaceStore.js';
 import { useProviderStore } from '../stores/providerStore.js';
 import { Header } from './SimpleChat/Header.js';
 import { ChatPane } from './SimpleChat/ChatPane.js';
-import { TaskList } from './SimpleChat/TaskList.js';
 import { InputBar } from './SimpleChat/InputBar.js';
 import { Toaster } from './SimpleChat/Toaster.js';
 
@@ -30,6 +29,9 @@ export function SimpleChat({ services }) {
 
     // ── Token budget ──
     const [tokenPercent, setTokenPercent] = useState(null);
+
+    // ── Clarification queue reference ──
+    const clarificationQueueRef = useRef(null);
 
     const workspace = useWorkspaceStore();
     const provider = useProviderStore();
@@ -71,6 +73,14 @@ export function SimpleChat({ services }) {
     };
 
     const handleSendText = async (text) => {
+        // ── If clarification is pending, route as answer ──
+        if (clarificationQueueRef.current?.isPending()) {
+            addMessage('user', text);
+            clarificationQueueRef.current.resolve(text);
+            updateRunState({ phase: 'planning', label: 'Continuing...' });
+            return;
+        }
+
         const [cmd, ...argsArr] = text.split(' ');
         const args = argsArr.join(' ');
 
@@ -138,17 +148,25 @@ export function SimpleChat({ services }) {
                         dispatchPending();
                     },
                     onClarificationNeeded: async (questions) => {
+                        // Show questions as an assistant chat bubble
+                        addMessage('assistant', '❓ Please answer these:\n' +
+                            questions.map((q, i) => `${i + 1}. ${q}`).join('\n'));
+
                         updateRunState({
                             phase: 'clarifying',
-                            label: 'Awaiting answers...',
-                            logs: [
-                                ...(runStateRef.current?.logs || []),
-                                '❓ ' + questions.map((q, i) => `${i + 1}. ${q}`).join('\n')
-                            ]
+                            label: 'Awaiting answers...'
                         });
+
+                        // Return a promise that the UI resolves when the user replies
                         return new Promise((resolve) => {
-                            const answer = window.prompt(questions.join('\n'));
-                            resolve(answer || '');
+                            if (improverRef.current?.clarificationQueue) {
+                                improverRef.current.clarificationQueue._pendingResolve = resolve;
+                                clarificationQueueRef.current = improverRef.current.clarificationQueue;
+                            } else {
+                                // Fallback: window.prompt
+                                const answer = window.prompt(questions.join('\n'));
+                                resolve(answer || '');
+                            }
                         });
                     },
                     onTokenUpdate: (used, budget) => {
@@ -206,6 +224,7 @@ export function SimpleChat({ services }) {
                 },
                 onTaskUpdate: () => {},
                 onTokenUpdate: () => {},
+                onProgress: (pct) => updateRunState({ progress: pct })
             });
 
             try {
