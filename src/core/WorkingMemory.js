@@ -34,7 +34,7 @@ export class WorkingMemory {
     addNote(note) { this.notes.push(note); }
 
     /**
-     * Build a very compact text block for the LLM prompt.
+     * Build a compact text block for the LLM prompt (original style).
      */
     toPromptContext() {
         let ctx = `Goal: ${this.goal}\n`;
@@ -49,5 +49,12 @@ export class WorkingMemory {
             ctx += 'Observations:\n' + this.notes.map(n => `- ${n}`).join('\n') + '\n';
         }
         return ctx;
+    }
+
+    /**
+     * Returns a list of paths that have been read (for ContextBuilder).
+     */
+    getReadPaths() {
+        return Object.keys(this.files);
     }
 }
