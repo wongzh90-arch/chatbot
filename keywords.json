@@ -65,566 +65,582 @@
         "Netlify Edge",
         "chat completions"
       ],
-      "summary": "Netlify Edge Function that proxies POST requests to the DeepSeek chat completions API, handling streaming SSE responses or JSON based on the request body."
+      "summary": "Edge function that proxies POST requests to DeepSeek's chat completions API, supporting streaming (SSE) and non-streaming responses with proper error handling."
     },
     "netlify/edge-functions/executor-proxy.js": {
       "keywords": [
         "executor proxy",
-        "Railway",
+        "RAILWAY API",
         "authentication",
-        "backend relay",
-        "Netlify Edge",
-        "API forwarding"
+        "edge function",
+        "proxy",
+        "POST"
       ],
-      "summary": "Netlify Edge Function that forwards POST requests to a Railway-hosted executor service, appending a bearer token and relaying response data."
+      "summary": "Netlify Edge function that proxies POST requests to a Railway-hosted executor API, forwarding authentication tokens and endpoint suffixes."
     },
     "netlify/edge-functions/firecrawl-proxy.js": {
       "keywords": [
         "Firecrawl",
-        "web search API",
-        "proxy",
-        "serverless",
+        "web search",
+        "API proxy",
         "Netlify Edge",
-        "result parsing"
+        "POST",
+        "search results"
       ],
-      "summary": "Netlify Edge Function that proxies POST requests to the Firecrawl v1 search API, truncating results and returning structured data with title, URL, and snippet."
+      "summary": "Edge function that proxies POST requests to Firecrawl's search API, returning sanitized and reshaped search results."
     },
     "netlify/edge-functions/github-token-proxy.js": {
       "keywords": [
-        "GitHub PAT",
+        "GitHub",
         "token proxy",
-        "GET endpoint",
         "Netlify Edge",
-        "secure configuration"
+        "GET",
+        "environment variable",
+        "GITHUB_PAT"
       ],
-      "summary": "Netlify Edge Function that securely serves the GITHUB_PAT environment variable as a JSON response to GET requests, returning null if not configured."
+      "summary": "Edge function that returns the GITHUB_PAT environment variable as a JSON response when called via GET, for client-side use."
     },
     "netlify/edge-functions/langsearch-proxy.js": {
       "keywords": [
         "LangSearch",
-        "web search API",
-        "proxy",
-        "serverless",
+        "web search",
+        "API proxy",
         "Netlify Edge",
-        "authentication"
+        "POST"
       ],
-      "summary": "Netlify Edge Function that proxies POST requests to the LangSearch v1 web search API using a bearer token and returns the upstream response."
+      "summary": "Edge function that proxies POST requests to LangSearch's web-search API, forwarding the request body and returning JSON responses."
     },
     "netlify/edge-functions/openrouter-proxy.js": {
       "keywords": [
-        "OpenRouter",
-        "AI chat completions",
-        "streaming SSE",
         "proxy",
-        "Netlify Edge",
-        "authentication",
-        "HTTP-Referer"
+        "API",
+        "OpenRouter",
+        "streaming",
+        "SSE",
+        "fetch",
+        "authorization",
+        "edge function",
+        "Netlify",
+        "error handling"
       ],
-      "summary": "Netlify Edge Function that proxies POST requests to the OpenRouter chat completions API, supporting streaming SSE or JSON responses and setting custom headers."
+      "summary": "Netlify edge function that proxies POST requests to OpenRouter API, handling authentication, streaming responses via SSE, and error forwarding."
     },
     "netlify/inject-preview-bypass.js": {
       "keywords": [
-        "Netlify",
-        "deploy-preview",
+        "preview",
+        "bypass",
         "inject",
         "script",
-        "index.html",
+        "deploy-preview",
         "login-gate",
-        "preview"
+        "build",
+        "Netlify",
+        "HTML",
+        "environment"
       ],
-      "summary": "Injects a script into index.html during Netlify deploy-preview context to hide the login gate and show the app."
+      "summary": "Build script that injects a JavaScript snippet into index.html during deploy-preview context to bypass the login gate and show the root element."
     },
     "preferences.json": {
       "keywords": [
         "preferences",
-        "self-improving bot",
+        "configuration",
         "clarification",
         "planning",
         "execution",
         "review",
-        "rules",
-        "JSON"
+        "bot",
+        "self-improving",
+        "JSON",
+        "rules"
       ],
-      "summary": "Editable JSON configuration for a self-improving bot, specifying clarification prompts, planning rules, execution code style, and review strictness."
+      "summary": "Configuration file for the self-improving bot containing editable settings for clarification prompts, planning rules, execution style, and review strictness."
     },
     "src/components/SimpleChat.js": {
       "keywords": [
         "SimpleChat",
         "React",
-        "workspace",
-        "provider",
+        "component",
         "messages",
         "tasks",
         "toast",
-        "slash command",
-        "self-improve"
+        "state",
+        "workspace",
+        "provider",
+        "pending command"
       ],
-      "summary": "React component implementing a chat interface with header, message list, task list, input bar, and toaster, supporting slash commands like /self-improve."
+      "summary": "React chat component that manages messages, task lists, toasts, and pending command dispatch, integrating with workspace and provider stores."
     },
     "src/components/SimpleChat/Header.js": {
       "keywords": [
         "Header",
         "React",
+        "component",
         "workspace",
         "provider",
         "mobile",
         "responsive",
-        "self-recursive bot",
         "input",
-        "button"
+        "branch",
+        "repository"
       ],
-      "summary": "Responsive header component for the chat UI displaying 'Self-Recursive Bot' with repository and branch inputs and a settings button, adapting layout for mobile."
+      "summary": "React header component displaying the self-recursive bot title and input fields for repository and branch, with responsive design for mobile."
     },
     "src/components/SimpleChat/InputBar.js": {
       "keywords": [
         "InputBar",
         "React",
-        "text input",
-        "send button",
-        "slash command",
+        "component",
+        "input",
+        "send",
         "mobile",
-        "responsive"
+        "responsive",
+        "button",
+        "keyboard event",
+        "Enter"
       ],
-      "summary": "Input bar component with a text field and send button, supporting Enter key and adapting layout for mobile screens."
+      "summary": "React input bar component with a text input and send button, supporting Enter key submission and mobile responsive layout."
     },
     "src/components/SimpleChat/MessageList.js": {
       "keywords": [
         "MessageList",
         "React",
-        "chat messages",
-        "user",
-        "agent",
+        "component",
+        "messages",
+        "chat",
         "scroll",
         "mobile",
-        "responsive"
+        "responsive",
+        "user",
+        "agent"
       ],
-      "summary": "Message list component that renders chat messages with different styles for user and agent, auto-scrolling to the latest message and adapting font sizes for mobile."
+      "summary": "React component that renders a scrollable list of chat messages with distinct styling for user and agent messages, responsive to window width."
     },
     "src/components/SimpleChat/TaskList.js": {
       "keywords": [
         "TaskList",
         "React",
+        "component",
         "tasks",
         "status",
         "DONE",
         "FAILED",
         "mobile",
-        "responsive"
+        "responsive",
+        "scroll"
       ],
-      "summary": "Task list component displaying a list of tasks with status indicators (DONE, FAILED, PENDING) and titles, adaptive to mobile screen size."
+      "summary": "React component displaying a scrollable list of tasks with status indicators (DONE, FAILED, etc.), responsive to window width."
     },
     "src/components/SimpleChat/Toaster.js": {
       "keywords": [
         "Toaster",
         "React",
-        "toast notification",
+        "component",
+        "toast",
+        "notification",
+        "fixed",
+        "position",
         "error",
         "success",
-        "fixed position"
+        "display"
       ],
-      "summary": "Simple toast notification component that renders a fixed-position message box with error or success border color, returning null if no toast is present."
+      "summary": "React component that renders a fixed-position toast notification with colored border based on type (error or success)."
     },
     "src/core/SelfImprover.js": {
       "keywords": [
         "SelfImprover",
         "orchestrator",
-        "self-improvement",
         "task decomposition",
+        "memory",
         "LLM",
         "GitHub",
-        "memory",
-        "PR",
-        "Netlify",
-        "timeout"
+        "planning",
+        "execution",
+        "review",
+        "Netlify"
       ],
-      "summary": "Main orchestrator for self-improvement runs with hierarchical task decomposition, persistent memory, dependency ordering, and LLM calls optimized for Netlify's 40-second timeout."
+      "summary": "Main orchestrator class for self-improvement runs that handles hierarchical task decomposition, persistent memory, LLM calls, and integration with GitHub services."
     },
     "src/core/WorkingMemory.js": {
       "keywords": [
         "WorkingMemory",
-        "memory",
-        "files",
+        "accumulate",
         "summary",
         "notes",
-        "plan",
-        "LLM prompt",
-        "context"
+        "toPromptContext",
+        "LLM",
+        "prompt",
+        "files",
+        "goal"
       ],
-      "summary": "Accumulates file summaries, notes, and plan information during an agentic run, providing a compact context string for LLM prompts by storing full content only for small files."
+      "summary": "Defines WorkingMemory class that accumulates file summaries and notes during agentic runs, and builds a compact context string for LLM prompts."
     },
     "src/core/agenticExecutor.js": {
       "keywords": [
         "agenticExecutor",
         "read-before-write",
+        "loop",
         "LLM",
-        "WorkingMemory",
         "GitHubService",
-        "targetFiles",
-        "shaMap",
-        "action parsing",
-        "file loading",
-        "commit SHAs"
+        "task",
+        "execution",
+        "timeout"
       ],
-      "summary": "Agentic executor that runs a single task using a read-before-write loop, loading target files for SHAs and iterating up to 8 turns to either read additional files or produce a final code block."
+      "summary": "Executes a single task using a read-before-write loop where the LLM can request additional file reads before producing a final code change."
     },
     "src/core/agenticPlanner.js": {
       "keywords": [
         "agenticPlanner",
-        "hierarchical sub-goal",
-        "plan prompt",
-        "candidate paths",
-        "file reading",
-        "LLM decisions",
-        "summariseFile",
-        "codebase exploration",
+        "hierarchical",
+        "sub-goal",
+        "plan",
+        "LLM",
         "GitHubService",
-        "working memory"
+        "WorkingMemory",
+        "exploration"
       ],
-      "summary": "Agentic planner that explores a codebase by iteratively reading candidate files (up to 6 turns) to build a plan for a given goal, using LLM to decide when to stop."
+      "summary": "Implements an agentic planner that explores candidate files via LLM-driven actions to formulate a plan for a coding goal."
     },
     "src/core/chunkedIndexer.js": {
       "keywords": [
         "chunkedIndexer",
-        "keyword index",
-        "file grouping",
-        "LLM extraction",
-        "keywords.json",
-        "file summaries",
+        "keyword",
+        "index",
+        "summary",
+        "LLM",
         "GitHubService",
-        "batch processing",
-        "JSON output",
-        "repository indexing"
+        "JSON",
+        "repository"
       ],
-      "summary": "Builds a keyword index for large repositories by processing files in groups of 10, extracting 5-10 keywords and a short summary per file via fast LLM completion, and committing the result as keywords.json."
+      "summary": "Builds a keyword index for a repository by processing files in groups of 10, extracting keywords and summaries via fast LLM calls."
     },
     "src/core/clarification.js": {
       "keywords": [
         "clarification",
-        "generating questions",
+        "questions",
+        "LLM",
+        "JSON",
+        "goal",
         "preferences",
-        "LLMProvider",
-        "JSON array",
-        "user request",
-        "edge cases",
-        "success criteria",
-        "scope",
-        "constraints"
+        "user"
       ],
-      "summary": "Generates 2-4 clarifying questions based on user goal and preferences, returns enriched goal with user answers to avoid coding mistakes."
+      "summary": "Generates clarifying questions (via LLM) to enrich the user's goal before the agent starts making code changes."
     },
     "src/core/coordinatedPlanner.js": {
       "keywords": [
         "coordinatedPlanner",
         "multi-agent",
-        "directory exploration",
-        "parallel execution",
-        "sub-goal",
-        "file grouping",
-        "LLMProvider",
-        "coordinator agent",
-        "plan creation",
-        "GitHubService"
+        "exploration",
+        "directory",
+        "parallel",
+        "plan",
+        "LLM"
       ],
-      "summary": "Multi-agent planner that groups candidate files by directory, runs parallel exploration agents per directory, then merges summaries into a single plan with file or sub-goal tasks."
+      "summary": "Creates a multi-agent plan by running parallel exploration agents per directory, then merges summaries via a coordinator agent."
     },
     "src/core/fileDiscovery.js": {
       "keywords": [
         "fileDiscovery",
-        "keyword index",
-        "goal matching",
+        "keywords",
+        "index",
+        "goal",
         "GitHubService",
-        "scored files",
-        "filename scan",
-        "LLM analysis",
-        "candidate filtering",
-        "JSON parsing",
-        "relevance scoring"
+        "scoring",
+        "discovery"
       ],
-      "summary": "Discovers relevant files by loading a keyword index from keywords.json (or fallback to filename scan), scoring files against goal words, and returning top matched files with content."
+      "summary": "Discovers relevant files from a keyword index or filename scan, scoring them against the goal words to select top candidates."
     },
     "src/core/hierarchicalPlanner.js": {
       "keywords": [
         "hierarchicalPlanner",
-        "sub-goal decomposition",
-        "LLMProvider",
-        "normalPlan",
-        "task queue",
-        "complex goals",
-        "JSON parsing",
-        "dependency tracking",
-        "parallel execution",
-        "decomposition decision"
+        "decompose",
+        "sub-goal",
+        "LLM",
+        "plan",
+        "taskQueue",
+        "complex"
       ],
-      "summary": "Extends existing planners by decomposing complex goals into 2-5 sub-goals using LLM, creating a hierarchical plan with dependency tracking for task queue execution."
+      "summary": "Extends planners with the ability to decompose a complex goal into hierarchical sub-goals based on LLM analysis."
     },
     "src/core/keywordIndexer.js": {
       "keywords": [
         "keywordIndexer",
+        "commands",
         "Levenshtein",
-        "slash commands",
-        "fuzzy matching",
-        "GitHubService",
-        "LLMProvider",
-        "command matching",
-        "best match",
-        "score calculation",
-        "prefix matching"
+        "fuzzy",
+        "match",
+        "score",
+        "slash"
       ],
-      "summary": "Indexes slash commands and performs fuzzy matching using Levenshtein distance to find the best command match by score for user input."
+      "summary": "Implements fuzzy matching of slash commands using Levenshtein distance to find the best match from a command list."
     },
     "src/core/manifestManager.js": {
       "keywords": [
         "manifestManager",
         "manifest.json",
-        "file loading",
         "GitHubService",
         "ManifestBuilder",
-        "JS file scanning",
-        "source building",
-        "JSON parsing",
-        "ctx integration",
-        "repo loading"
+        "fileTree",
+        "source"
       ],
-      "summary": "Ensures a manifest exists by loading manifest.json from repo or building it from JS source files when absent."
+      "summary": "Ensures a manifest.json is loaded from the repo or built from the source tree by reading JS/JSX files."
     },
     "src/core/parallelExec.js": {
       "keywords": [
-        "parallelExec",
-        "task queue",
+        "parallel",
         "concurrency",
-        "file locking",
+        "task queue",
+        "locked files",
         "executeTaskAgentic",
-        "parallel execution",
-        "task status",
-        "conflict avoidance",
         "maxConcurrency",
+        "Promise.race",
         "worker"
       ],
-      "summary": "Executes pending tasks in parallel with configurable concurrency, skipping tasks that touch locked files to avoid conflicts."
+      "summary": "Executes the task queue in parallel up to a maxConcurrency limit, skipping tasks that touch already-locked files to avoid conflicts, and using executeTaskAgentic for each task."
     },
     "src/core/persistentMemory.js": {
       "keywords": [
-        "persistentMemory",
-        "saveMemory",
-        "loadMemory",
-        "serialiseMemory",
-        "deserialiseMemory",
+        "persistent memory",
+        "serialize",
+        "deserialize",
         "WorkingMemory",
         "runId",
-        ".self-improve"
+        "saveMemory",
+        "loadMemory",
+        "saveRunSummary",
+        "JSON"
       ],
-      "summary": "Provides functions to save and load working memory to/from the repository, scoped by a unique runId to prevent overwrites between concurrent runs, and includes serialization/deserialization of WorkingMemory instances."
+      "summary": "Manages saving and loading working memory to/from the repo as JSON files scoped by a runId, including serialize/deserialize helper functions and memory path builder."
     },
     "src/core/planner.js": {
       "keywords": [
-        "plan",
-        "LLMProvider",
-        "taskQueue",
-        "discoveryCache",
-        "JSON",
-        "milestone_title",
+        "planner",
+        "LLM provider",
+        "JSON plan",
+        "milestone",
         "tasks",
-        "file paths"
+        "file paths",
+        "discovery cache",
+        "prompt"
       ],
-      "summary": "Generates a structured plan (milestone title, analysis, and up to 4 tasks with exact file paths) for achieving a given goal by using an LLM to analyze discovered or specified file context."
+      "summary": "Uses an LLM to generate a structured JSON plan (milestone title, analysis, up to 4 tasks) based on a goal and discovered file context, then initializes the task queue."
     },
     "src/core/prCreator.js": {
       "keywords": [
-        "createPR",
-        "GitHubService",
         "pull request",
-        "goal",
+        "PR creator",
+        "GitHubService",
+        "createPullRequest",
         "branch",
-        "html_url"
+        "PR URL"
       ],
-      "summary": "Creates a GitHub pull request with a title based on the provided goal and returns the URL of the created PR."
+      "summary": "Creates a GitHub pull request with a title derived from the goal (truncated to 60 characters) and returns the PR URL."
     },
     "src/core/reviewer.js": {
       "keywords": [
-        "reviewAll",
-        "reviewTask",
-        "GitHubService",
-        "LLMProvider",
-        "taskQueue",
+        "reviewer",
+        "LLM review",
+        "task review",
         "PASS",
         "ISSUES",
-        "code review"
+        "checklist",
+        "GitHub content"
       ],
-      "summary": "Reviews completed tasks by fetching file contents from the repo and using an LLM to check if the implementation matches the task description, marking tasks as passed or failed based on the review."
+      "summary": "Reviews completed tasks by loading their committed file contents from the repo and using an LLM to check if implementation matches the task description and goal."
     },
     "src/core/taskQueue.js": {
       "keywords": [
-        "initTaskQueue",
-        "taskQueue",
+        "task queue",
         "status",
         "TODO",
         "DONE",
         "FAILED",
+        "initTaskQueue",
         "getPendingTasks",
-        "getDoneTasks",
         "markTaskDone"
       ],
-      "summary": "Manages a queue of tasks with status tracking (TODO, DONE, FAILED), providing functions to initialize, retrieve pending/done tasks, and update task status."
+      "summary": "Provides functions to initialize, query, and update a task queue with status tracking (TODO, DONE, FAILED, REVIEW_PASSED) and task finder by ID."
     },
     "src/main.js": {
       "keywords": [
+        "main",
         "React",
+        "createRoot",
         "SimpleChat",
-        "workspaceStore",
-        "providerStore",
-        "GitHubService",
-        "LLMProvider",
-        "ExecutorAPI",
+        "services",
         "SelfImprover",
+        "GitHub token",
         "Netlify"
       ],
-      "summary": "Initializes the React application by setting up services (GitHub, LLM, ExecutorAPI) and creating a SelfImprover instance with workspace and provider store configurations, including automatic GitHub token loading from Netlify."
+      "summary": "Bootstraps the React application by creating a root, setting up service instances (GitHub, LLM, executor, etc.), and auto-loading the GitHub token from Netlify env if not locally stored."
     },
     "src/services/PreferencesService.js": {
       "keywords": [
-        "PreferencesService",
-        "preferences.json",
+        "preferences",
         "load",
         "save",
-        "GitHubService",
         "defaults",
+        "custom instructions",
         "clarification",
-        "planning",
-        "execution",
-        "review"
+        "planning rules",
+        "code style"
       ],
-      "summary": "Loads and saves a preferences.json file from/to the repository with default settings for clarification, planning, execution, and review, merging user preferences with defaults."
+      "summary": "Loads and saves a preferences.json file from/to the repo with defaults for clarification, planning, execution, and review settings, used to inject custom instructions into agent prompts."
     },
     "src/services/executorApi.js": {
       "keywords": [
-        "ExecutorAPI",
-        "call",
+        "executor API",
+        "proxy",
+        "Netlify",
+        "Railway",
         "lint",
         "syntax",
         "health",
-        "Netlify",
-        "proxy",
-        "Railway auth",
         "fail open"
       ],
-      "summary": "Provides API calls to an executor service via a Netlify edge proxy for linting and syntax checking, with error handling that fails open on network errors to prevent blocking commits."
+      "summary": "Provides a static API class that calls lint/syntax/health endpoints through a Netlify edge proxy, with fail-open behavior to allow commits if the Railway backend is unreachable."
     },
     "src/services/github.js": {
       "keywords": [
-        "GitHubService",
-        "fetchFileTree",
-        "loadFileContent",
-        "commitMultipleFiles",
-        "headers",
-        "token",
+        "GitHub service",
+        "file tree",
+        "file content",
+        "commit",
         "API",
-        "tree",
-        "blob"
+        "base64",
+        "blob",
+        "tree"
       ],
-      "summary": "Handles GitHub API operations including fetching file trees, loading file contents, and committing multiple files to a repository branch using authentication tokens."
+      "summary": "Provides static methods for GitHub API interactions including fetching file trees, loading file content (base64-decoded), and committing multiple files with a new tree."
     },
     "src/services/llmProvider.js": {
       "keywords": [
         "LLMProvider",
         "chatCompletion",
+        "timeout",
+        "abort controller",
+        "fast model",
         "deepseek",
         "openrouter",
-        "timeout",
-        "fastModel",
-        "thinkingMode",
-        "reasoningEffort",
-        "Netlify proxy"
-      ],
-      "summary": "Provides a single interface for calling language models through Netlify edge proxies with configurable timeout, fast-model override, thinking mode, and reasoning effort parameters."
-    },
-    "src/services/smokeTest.js": {
-      "keywords": [
-        "smoke test",
-        "deploy preview",
-        "Netlify",
-        "polling",
-        "health check",
-        "timeout"
-      ],
-      "summary": "SmokeTest class that polls a Netlify deploy-preview URL until the page renders correctly with a root element and no syntax errors, or times out after a configurable period."
-    },
-    "src/stores/providerStore.js": {
-      "keywords": [
-        "Zustand",
-        "persist",
-        "provider",
-        "model",
+        "proxy",
         "thinking mode",
         "reasoning effort"
       ],
-      "summary": "Zustand store (persisted) managing the LLM provider, selected model, thinking mode, and reasoning effort settings."
+      "summary": "LLMProvider manages calls to language models via Netlify edge proxies, with configurable timeout (default 20s), fast model override, and support for thinking/reasoning modes on DeepSeek."
+    },
+    "src/services/smokeTest.js": {
+      "keywords": [
+        "SmokeTest",
+        "waitForPreview",
+        "deploy preview",
+        "polling",
+        "health check",
+        "Netlify",
+        "preview URL",
+        "timeout",
+        "testDeployPreview",
+        "site name"
+      ],
+      "summary": "SmokeTest polls a Netlify deploy-preview URL until the page renders correctly (detecting root element and no SyntaxError) within a configurable timeout."
+    },
+    "src/stores/providerStore.js": {
+      "keywords": [
+        "providerStore",
+        "Zustand",
+        "persist",
+        "provider",
+        "selectedModel",
+        "thinkingMode",
+        "reasoningEffort",
+        "deepseek",
+        "localStorage",
+        "state management"
+      ],
+      "summary": "useProviderStore is a Zustand store with persistence that manages LLM provider selection, model, thinking mode, and reasoning effort preferences."
     },
     "src/stores/workspaceStore.js": {
       "keywords": [
+        "workspaceStore",
         "Zustand",
         "persist",
-        "workspace",
-        "repo",
-        "branch",
-        "GitHub token",
-        "remember keys"
+        "currentRepo",
+        "currentBranch",
+        "githubToken",
+        "rememberKeys",
+        "localStorage",
+        "state management"
       ],
-      "summary": "Zustand store (persisted) managing workspace state including current repo, branch, GitHub token, and whether to remember the keys."
+      "summary": "useWorkspaceStore is a Zustand store with persistence for workspace settings including repository, branch, GitHub token, and key remember flag."
     },
     "src/utils/agentSkills.js": {
       "keywords": [
-        "agent skills",
+        "processAgentSkills",
         "update_editor",
         "read_file",
         "regex",
-        "parse",
-        "code blocks"
+        "skill extraction",
+        "AI reply",
+        "code block",
+        "file path",
+        "action parsing"
       ],
-      "summary": "Parses AI replies for `<skill>` tags to extract update_editor blocks and read_file requests, returning a modified reply and collected actions."
+      "summary": "processAgentSkills parses AI replies for <skill> tags to extract update_editor blocks and read_file requests, replacing them with descriptive notes."
     },
     "src/utils/contextBuilder.js": {
       "keywords": [
-        "context builder",
-        "manifest",
+        "ContextBuilder",
+        "identifyRequiredFiles",
+        "buildContext",
         "dependency graph",
-        "import resolution",
+        "manifest",
+        "token budget",
+        "target files",
+        "related files",
         "interface only",
-        "token budget"
+        "imports"
       ],
-      "summary": "ContextBuilder that identifies required files (including imports/consumers from a manifest) and builds a structured context string with full or interface-only content within a token budget."
+      "summary": "ContextBuilder identifies required source files based on import relationships and builds a token-budgeted context string with full and interface-only file content."
     },
     "src/utils/manifestBuilder.js": {
       "keywords": [
-        "manifest builder",
+        "ManifestBuilder",
+        "buildFromFiles",
         "dependency graph",
-        "ES module",
-        "imports",
         "exports",
-        "importedBy"
+        "imports",
+        "importedBy",
+        "ES modules",
+        "resolve imports",
+        "reverse dependency"
       ],
-      "summary": "Builds a dependency graph manifest from file content objects by extracting ES module imports/exports, resolving relative paths, and computing reverse dependencies."
+      "summary": "ManifestBuilder constructs a dependency graph from JavaScript files by extracting ES module exports/imports and resolving relative paths."
     },
     "src/utils/sandboxTest.js": {
       "keywords": [
-        "sandbox test",
+        "testCodeSandbox",
         "iframe",
+        "sandbox",
         "eval",
         "timeout",
-        "service loading",
-        "health check"
+        "SelfImprover",
+        "module preloading",
+        "health check",
+        "cleanup",
+        "sandbox execution"
       ],
-      "summary": "Tests code in a sandboxed iframe by pre-loading all required modules, injecting them into the iframe window, executing the code via eval, and running a health check with a timeout."
+      "summary": "testCodeSandbox runs user code in a sandboxed iframe with preloaded service modules and returns whether the SelfImprover healthCheck succeeds within a timeout."
     },
     "src/utils/stripComments.js": {
       "keywords": [
-        "strip comments",
-        "regex",
+        "stripComments",
+        "comments",
         "block comments",
         "line comments",
         "blank lines",
-        "minification"
+        "prompt size",
+        "code cleanup",
+        "regex"
       ],
-      "summary": "Utility function that strips JavaScript/CSS block and line comments and removes blank lines to reduce code size."
+      "summary": "stripComments removes JavaScript and CSS comments (block and line) and blank lines from code to reduce prompt token usage."
     }
   }
 }
