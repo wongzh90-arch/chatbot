@@ -2,7 +2,7 @@ import React from 'react';
 import { useWorkspaceStore } from '../stores/workspaceStore.js';
 import { useProviderStore } from '../stores/providerStore.js';
 import { Header } from './SimpleChat/Header.js';
-import { MessageList } from './SimpleChat/MessageList.js';
+import { ChatPane } from './SimpleChat/ChatPane.js';
 import { TaskList } from './SimpleChat/TaskList.js';
 import { InputBar } from './SimpleChat/InputBar.js';
 import { Toaster } from './SimpleChat/Toaster.js';
@@ -18,7 +18,18 @@ export function SimpleChat({ services }) {
     const [isRunning, setIsRunning] = useState(false);
     const [toast, setToast] = useState(null);
     const [windowWidth, setWindowWidth] = useState(window.innerWidth);
-    const [pendingCommand, setPendingCommand] = useState(null);   // command queued while busy
+    const [pendingCommand, setPendingCommand] = useState(null);
+
+    // ── Live run state (for RunCard) ──
+    const [runState, setRunState] = useState(null);
+    const runStateRef = useRef(null);
+
+    // ── Error log state ──
+    const [errorLog, setErrorLog] = useState('');
+    const [showErrorLog, setShowErrorLog] = useState(false);
+
+    // ── Token budget ──
+    const [tokenPercent, setTokenPercent] = useState(null);
 
     const workspace = useWorkspaceStore();
     const provider = useProviderStore();
@@ -43,12 +54,15 @@ export function SimpleChat({ services }) {
         setTimeout(() => setToast(null), 4000);
     };
 
-    // ─── Run any queued command after the current job finishes ───
+    const updateRunState = (update) => {
+        runStateRef.current = { ...(runStateRef.current || {}), ...update };
+        setRunState({ ...runStateRef.current });
+    };
+
     const dispatchPending = () => {
         if (pendingCommand) {
             const cmdToRun = pendingCommand;
             setPendingCommand(null);
-            // small delay to let React state updates settle
             setTimeout(() => {
                 addMessage('user', cmdToRun);
                 handleSendText(cmdToRun);
@@ -56,12 +70,11 @@ export function SimpleChat({ services }) {
         }
     };
 
-    // ─── Core command processing (all commands) ───
     const handleSendText = async (text) => {
         const [cmd, ...argsArr] = text.split(' ');
         const args = argsArr.join(' ');
 
-        // ---- SELF‑IMPROVE ----
+        // ─── SELF‑IMPROVE ───
         if (cmd === '/self-improve') {
             if (!args) { addToast('Provide a goal', 'error'); return; }
             if (isRunning) {
@@ -75,30 +88,83 @@ export function SimpleChat({ services }) {
             }
             setIsRunning(true);
             setPendingCommand(null);
-            addMessage('assistant', `🚀 Starting self‑improvement: "${args}"`);
+
+            const effectiveGoal = errorLog.trim()
+                ? `[ERROR LOG]\n${errorLog.trim()}\n\nUser goal: ${args}`
+                : args;
+            setErrorLog('');
+            setShowErrorLog(false);
+
+            addMessage('user', text);
+            setTokenPercent(null);
+
+            runStateRef.current = {
+                phase: 'clarifying',
+                label: 'Starting...',
+                logs: [],
+                tasks: [],
+                fileChanges: [],
+                progress: 0
+            };
+            setRunState({ ...runStateRef.current });
+
             try {
                 improverRef.current = services.createImprover({
-                    onLog: (msg) => addMessage('assistant', msg),   // all core logs appear here
+                    onLog: (msg) => {
+                        const logs = [...(runStateRef.current?.logs || []), msg];
+                        updateRunState({ logs: logs.slice(-100) });
+                    },
                     onTaskUpdate: () => {
-                        setTasks([...improverRef.current.taskQueue?.tasks] || []);
+                        const t = improverRef.current?.taskQueue?.tasks || [];
+                        const done = t.filter(t => t.status === 'DONE').length;
+                        const failed = t.filter(t => t.status === 'FAILED').length;
+                        const total = t.length;
+                        updateRunState({
+                            tasks: t.map(t => ({ title: t.title, status: t.status })),
+                            progress: total > 0 ? ((done + failed) / total) * 100 : 0
+                        });
+                        setTasks([...t]);
                     },
                     onRunComplete: ({ success, prUrl }) => {
                         setIsRunning(false);
+                        setTokenPercent(null);
+                        updateRunState({
+                            phase: success ? 'done' : 'failed',
+                            label: success ? 'PR Ready' : 'Run failed',
+                            progress: 100
+                        });
                         if (success) addMessage('assistant', `✅ PR opened: ${prUrl}`);
                         else addMessage('assistant', `❌ Self‑improvement failed.`);
-                        dispatchPending();   // check for queued command
+                        dispatchPending();
                     },
                     onClarificationNeeded: async (questions) => {
-                        addMessage('assistant', '❓ Please answer these:\n' +
-                            questions.map((q, i) => `${i + 1}. ${q}`).join('\n'));
+                        updateRunState({
+                            phase: 'clarifying',
+                            label: 'Awaiting answers...',
+                            logs: [
+                                ...(runStateRef.current?.logs || []),
+                                '❓ ' + questions.map((q, i) => `${i + 1}. ${q}`).join('\n')
+                            ]
+                        });
                         return new Promise((resolve) => {
                             const answer = window.prompt(questions.join('\n'));
                             resolve(answer || '');
                         });
                     },
+                    onTokenUpdate: (used, budget) => {
+                        if (budget) setTokenPercent(Math.min(100, Math.round((used / budget) * 100)));
+                    },
+                    onPhaseChange: (phase, label) => updateRunState({ phase, label }),
+                    onFileChange: (path, status, diff) => {
+                        const fc = [...(runStateRef.current?.fileChanges || [])];
+                        const idx = fc.findIndex(f => f.path === path);
+                        if (idx >= 0) fc[idx] = { path, status, diff };
+                        else fc.push({ path, status, diff });
+                        updateRunState({ fileChanges: fc });
+                    },
                 });
                 await improverRef.current.fetchFileTree();
-                await improverRef.current.runGoal(args);
+                await improverRef.current.runGoal(effectiveGoal);
             } catch (err) {
                 setIsRunning(false);
                 addMessage('assistant', `❌ Startup error: ${err.message}`);
@@ -108,7 +174,7 @@ export function SimpleChat({ services }) {
             return;
         }
 
-        // ---- INDEX ----
+        // ─── INDEX ───
         if (cmd === '/index') {
             if (isRunning) {
                 setPendingCommand(text);
@@ -121,68 +187,131 @@ export function SimpleChat({ services }) {
             }
             setIsRunning(true);
             setPendingCommand(null);
-            addMessage('assistant', '🔍 Indexing repo keywords...');
+            addMessage('user', text);
+
+            runStateRef.current = {
+                phase: 'executing',
+                label: 'Indexing...',
+                logs: ['🔍 Indexing repo keywords...'],
+                tasks: [],
+                fileChanges: [],
+                progress: 0
+            };
+            setRunState({ ...runStateRef.current });
 
             const improver = services.createImprover({
-                onLog: (msg) => addMessage('assistant', msg),   // indexer logs appear here
+                onLog: (msg) => {
+                    const logs = [...(runStateRef.current?.logs || []), msg];
+                    updateRunState({ logs: logs.slice(-100) });
+                },
                 onTaskUpdate: () => {},
-                // onRunComplete is not used by the indexer; we manage state ourselves
+                onTokenUpdate: () => {},
             });
 
             try {
                 await improver.fetchFileTree();
                 await improver.buildKeywordIndex();
+                updateRunState({
+                    phase: 'done',
+                    label: 'Indexed',
+                    progress: 100,
+                    logs: [...(runStateRef.current?.logs || []), '✅ Indexed']
+                });
             } catch (err) {
-                addMessage('assistant', `❌ Indexing failed: ${err.message}`);
+                updateRunState({
+                    phase: 'failed',
+                    label: 'Indexing failed',
+                    logs: [...(runStateRef.current?.logs || []), `❌ ${err.message}`]
+                });
             } finally {
-                setIsRunning(false);      // ALWAYS turn off running
-                dispatchPending();        // run any queued /self-improve
+                setIsRunning(false);
+                dispatchPending();
             }
             return;
         }
 
-        // ---- PAUSE ----
+        // ─── PAUSE ───
         if (cmd === '/pause') {
+            addMessage('user', text);
             if (improverRef.current) improverRef.current.pause();
+            updateRunState({ phase: 'paused', label: 'Paused' });
             addMessage('assistant', '⏸ Pause requested');
             return;
         }
 
-        // ---- HELP ----
+        // ─── HELP ───
         if (cmd === '/help') {
-            addMessage('assistant', 'Commands: `/index`, `/self-improve "goal"`, `/pause`, `/clear`');
+            addMessage('user', text);
+            addMessage('assistant', 'Commands: `/index`, `/self-improve "goal"`, `/pause`, `/clear`, `/context`');
             return;
         }
 
-        // ---- CLEAR ----
+        // ─── CLEAR ───
         if (cmd === '/clear') {
             setMessages([{ role: 'assistant', content: 'Chat cleared.' }]);
             return;
         }
 
-        // ---- UNKNOWN ----
+        // ─── CONTEXT ───
+        if (cmd === '/context') {
+            addMessage('user', text);
+            const improver = services.createImprover({
+                onLog: () => {},
+                onTaskUpdate: () => {},
+                onTokenUpdate: () => {},
+            });
+            if (improver.conversationMemory) {
+                const summary = improver.conversationMemory.toSummaryString();
+                addMessage('assistant', summary || 'No memory yet.');
+            } else {
+                addMessage('assistant', 'No conversation memory available.');
+            }
+            return;
+        }
+
+        // ─── UNKNOWN ───
+        addMessage('user', text);
         addMessage('assistant', `Unknown command: ${cmd}. Type /help`);
     };
 
-    // ─── User pressed Enter ───
     const handleSend = async () => {
         const text = input.trim();
         if (!text) return;
         setInput('');
-        addMessage('user', text);
         await handleSendText(text);
     };
 
-    // ─── UI ───
+    const tokenBarColor = tokenPercent !== null
+        ? (tokenPercent > 60 ? '#4ade80' : tokenPercent > 30 ? '#fbbf24' : '#f87171')
+        : '#333';
+
     return createElement('div', {
-        style: {
-            display: 'flex', flexDirection: 'column', height: '100vh',
-            background: '#0a0a0a', color: '#e5e5e5'
-        }
+        style: { display: 'flex', flexDirection: 'column', height: '100vh', background: '#0a0a0a', color: '#e5e5e5' }
     },
         createElement(Header, { isRunning, windowWidth }),
-        createElement(MessageList, { messages, chatEndRef, windowWidth }),
-        createElement(TaskList, { tasks, windowWidth }),
+        tokenPercent !== null && createElement('div', { style: { height: 4, background: '#1a1a1a', width: '100%' } },
+            createElement('div', {
+                style: { height: '100%', width: `${tokenPercent}%`, background: tokenBarColor, transition: 'width 0.3s' }
+            })
+        ),
+        createElement(ChatPane, {
+            messages, chatEndRef, windowWidth,
+            runState, isRunning,
+            onPause: () => improverRef.current?.pause()
+        }),
+        createElement('div', { style: { padding: '0 12px' } },
+            createElement('button', {
+                onClick: () => setShowErrorLog(!showErrorLog),
+                style: { background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 12, marginBottom: 4 }
+            }, showErrorLog ? '▲ Hide error log' : '▼ Paste error log'),
+            showErrorLog && createElement('textarea', {
+                value: errorLog,
+                onChange: e => setErrorLog(e.target.value),
+                placeholder: 'Paste stack trace or error message here...',
+                rows: 4,
+                style: { width: '100%', background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, padding: 8, color: 'white', fontSize: 13, resize: 'vertical', marginBottom: 8 }
+            })
+        ),
         createElement(InputBar, { input, setInput, onSend: handleSend, windowWidth }),
         createElement(Toaster, { toast })
     );
