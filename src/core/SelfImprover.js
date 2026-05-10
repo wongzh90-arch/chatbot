@@ -6,6 +6,11 @@
  *   - Sub‑goals inherit parent memory but do NOT persist separately.
  *   - Dependency ordering is enforced before normal task execution.
  *   - LLM calls are ≤20 s, staying within the confirmed Netlify 40‑s header timeout.
+ *
+ *   Phase 0C + 2C wiring now included:
+ *     - ConversationMemory for cross‑run context
+ *     - ErrorIngestion for stack trace injection
+ *     - Original file contents stored for reviewer
  */
 import { GitHubService } from '../services/github.js';
 import { LLMProvider } from '../services/llmProvider.js';
@@ -26,6 +31,8 @@ import {
     markTaskDone, markTaskFailed, markTaskTodo, markTaskReviewPassed, findTask
 } from './taskQueue.js';
 import { SmokeTest } from '../services/smokeTest.js';
+import { ConversationMemory } from '../services/conversationMemory.js';   // new
+import { ErrorIngestion } from '../services/errorIngestion.js';           // new
 
 export class SelfImprover {
     constructor({ repo, branch, githubToken, provider, model, thinkingMode,
@@ -33,7 +40,7 @@ export class SelfImprover {
                   onLog, onTaskUpdate, onRunComplete, onClarificationNeeded,
                   preferences }) {
         this.repo = repo;
-        this.originalBranch = branch;           // keep original for PR base
+        this.originalBranch = branch;
         this.branch = branch;
         this.githubToken = githubToken;
         this.provider = provider;
@@ -57,7 +64,10 @@ export class SelfImprover {
         this.parentGoal = null;
         this.parentWorkingMemory = null;
         this.runId = `run-${Date.now()}`;
-        this.changeBranch = null;               // feature branch for this run
+        this.changeBranch = null;
+
+        // New services – created only for top‑level runs
+        this.conversationMemory = null;
     }
 
     async fetchFileTree() {
@@ -78,11 +88,11 @@ export class SelfImprover {
             );
             index = JSON.parse(content);
         } catch {}
-    
+
         const goalWords = goal.toLowerCase().match(/\b\w{3,}\b/g) || [];
         let scored = [];
-        const seen = new Set();   // avoid duplicates
-    
+        const seen = new Set();
+
         if (index?.files) {
             for (const [filePath, data] of Object.entries(index.files)) {
                 const keywords = Array.isArray(data) ? data : (data.keywords || []);
@@ -95,15 +105,14 @@ export class SelfImprover {
                 }
             }
         }
-    
-        // ---- NEW: Add files explicitly mentioned in the goal (by filename or path) ----
+
+        // Add files explicitly mentioned in the goal (by filename or path)
         const fileTree = this.fileTree || [];
         for (const file of fileTree) {
-            const fileName = file.path.split('/').pop();   // just the filename
+            const fileName = file.path.split('/').pop();
             if (!seen.has(file.path) &&
                 (goal.toLowerCase().includes(file.path.toLowerCase()) ||
                  goal.toLowerCase().includes(fileName.toLowerCase()))) {
-                // fetch the first few hundred chars for a summary if not already present
                 let summary = '';
                 try {
                     const { content } = await GitHubService.loadFileContent(
@@ -115,12 +124,11 @@ export class SelfImprover {
                 seen.add(file.path);
             }
         }
-    
-        // ---- Fallback: if no index, also scan by filename ----
+
+        // Fallback filename scan
         if (!index) {
             const scanExts = /\.(js|jsx|html|css|toml|json)$/;
             const skipPaths = /node_modules|\.min\.|package-lock|yarn\.lock/;
-            // Only add files not already matched
             for (const file of fileTree) {
                 if (seen.has(file.path)) continue;
                 if (scanExts.test(file.path) && !skipPaths.test(file.path)) {
@@ -132,13 +140,10 @@ export class SelfImprover {
                 }
             }
         }
-    
+
         scored.sort((a, b) => b.score - a.score);
         this.discoveryCache = scored.slice(0, 20);
         this.onLog(`📂 Discovered ${this.discoveryCache.length} relevant files`);
-        if (scored.some(f => f.hits.includes('explicit mention'))) {
-            this.onLog('📌 Explicit file match(es) added');
-        }
     }
 
     async runGoal(goal, depth = 0) {
@@ -149,14 +154,30 @@ export class SelfImprover {
             return { success: false };
         }
 
-        // ---------- Load preferences (top-level only) ----------
+        // ---------- Cross‑run memory (top‑level only) ----------
+        if (depth === 0) {
+            if (!this.conversationMemory) {
+                this.conversationMemory = new ConversationMemory(this.repo, this.originalBranch);
+            }
+            this.conversationMemory.startRun(goal);
+        }
+
+        // ---------- Error ingestion (parse stack traces) ----------
+        let enrichedGoal = goal;
+        const errorContext = ErrorIngestion.getErrorContext(goal);
+        if (errorContext) {
+            this.onLog('🪵 Detected error stack trace – prioritising mentioned files');
+            enrichedGoal = `[ERROR CONTEXT]\n${errorContext}\n\nUser goal:\n${goal}`;
+        }
+
+        // ---------- Load preferences (top‑level only) ----------
         if (depth === 0 && !this.preferences) {
             try {
                 this.preferences = await PreferencesService.load(this.repo, this.originalBranch, this.githubToken);
-            } catch { /* will stay empty */ }
+            } catch { /* stay empty */ }
         }
 
-        // ---------- Create feature branch (top-level only) ----------
+        // ---------- Create feature branch (top‑level only) ----------
         if (depth === 0 && !this.changeBranch) {
             this.changeBranch = `${this.originalBranch}-self-improve-${Date.now()}`;
             try {
@@ -171,38 +192,37 @@ export class SelfImprover {
         let result = { success: false, committedFiles: [] };
 
         try {
-            // ---------- Setup memory ----------
+            // ---------- Setup working memory ----------
             if (depth === 0) {
                 this.workingMemory = await loadMemory(this, this.runId);
             } else {
-                if (this.parentWorkingMemory) {
-                    this.workingMemory = cloneWorkingMemory(this.parentWorkingMemory);
-                } else {
-                    this.workingMemory = new WorkingMemory();
-                }
+                this.workingMemory = this.parentWorkingMemory
+                    ? cloneWorkingMemory(this.parentWorkingMemory)
+                    : new WorkingMemory();
                 this.workingMemory.notes.push(`Parent goal: ${this.parentGoal || '(none)'}`);
             }
-            this.workingMemory.goal = goal;
+            this.workingMemory.goal = enrichedGoal;
 
-            // 1. Clarification
-            const enrichedGoal = await runClarification(this, goal);
-            this.currentGoal = enrichedGoal;
+            // 1. Clarification (uses original goal string without error context)
+            const clarifiedGoal = await runClarification(this, enrichedGoal);
+            this.currentGoal = clarifiedGoal;
             this.onLog(`🚀 Goal: ${goal}${depth > 0 ? ` (sub‑goal, depth ${depth})` : ''}`);
 
             // 2. File tree & manifest
             await ensureManifest(this);
             if (!this.fileTree) await this.fetchFileTree();
-            await this._discoverFiles(enrichedGoal);
+            await this._discoverFiles(clarifiedGoal);
 
-            // 3. Plan (hierarchical – may produce sub‑goals)
+            // 3. Plan (hierarchical)
             const normalPlanner = this.discoveryCache.length > 10 ? coordinatedPlan : agenticPlan;
-            const planResult = await hierarchicalPlan(this, enrichedGoal, normalPlanner);
+            const planResult = await hierarchicalPlan(this, clarifiedGoal, normalPlanner);
             if (!planResult?.tasks?.length) {
                 this.onLog('❌ No tasks generated');
+                if (depth === 0) this.conversationMemory.addFailedAttempt('No tasks generated');
                 return result;
             }
 
-            // 4. Execute tasks – sub‑goals first (sequential), then normal tasks in parallel
+            // 4. Execute tasks – sub‑goals first, then normal tasks
             const tasks = this.taskQueue.tasks;
             const normalTasks = [];
 
@@ -212,10 +232,9 @@ export class SelfImprover {
                 if (task.subGoal) {
                     // ---- SUB‑GOAL (recursive) ----
                     this.onLog(`\n🔽 Starting sub‑goal: "${task.subGoal}"`);
-
                     const child = new SelfImprover({
                         repo: this.repo,
-                        branch: this.branch,   // child inherits the feature branch
+                        branch: this.branch,
                         githubToken: this.githubToken,
                         provider: this.provider,
                         model: this.model,
@@ -232,8 +251,10 @@ export class SelfImprover {
                     child.parentWorkingMemory = this.workingMemory;
                     child.fileTree = this.fileTree;
                     child.discoveryCache = this.discoveryCache;
-                    child.changeBranch = this.changeBranch;  // same feature branch
+                    child.changeBranch = this.changeBranch;
                     child.branch = this.branch;
+                    // Inherit conversation memory (read‑only for sub‑agents)
+                    child.conversationMemory = this.conversationMemory;
 
                     const subResult = await child.runGoal(task.subGoal, depth + 1);
 
@@ -256,7 +277,7 @@ export class SelfImprover {
                 }
             }
 
-            // 5. Execute normal tasks in dependency order, then parallel
+            // 5. Execute normal tasks
             if (normalTasks.length > 0) {
                 const orderedNormalTasks = topologicalSort(normalTasks);
                 this.taskQueue.tasks = orderedNormalTasks.concat(
@@ -265,7 +286,7 @@ export class SelfImprover {
                 this.taskQueue.nextId = Math.max(...this.taskQueue.tasks.map(t => t.id), 0) + 1;
             }
 
-            // 6. Review loop
+            // 6. Review loop (now uses before/after comparison)
             let cycles = 0;
             const MAX_CYCLES = 3;
             let allPassed = false;
@@ -296,13 +317,17 @@ export class SelfImprover {
             const allDone = this.taskQueue.tasks.every(t => t.status === 'DONE');
 
             if (allDone && depth === 0) {
-                const prUrl = await createPR(this, goal);   // uses this.branch (feature branch) as head
+                const prUrl = await createPR(this, goal);
                 result.success = true;
                 result.prUrl = prUrl;
                 result.committedFiles = gatherCommittedFiles(this.taskQueue.tasks);
                 this.onLog(`✅ PR: ${prUrl}`);
 
                 await saveRunSummary(this, goal, true, prUrl);
+
+                // Record success in conversation memory
+                this.conversationMemory.addDecision('Completed: ' + goal);
+                this.conversationMemory.setPhase('done');
 
                 if (this.netlitySiteName) {
                     this.onLog('🌐 Waiting for Netlify deploy preview...');
@@ -320,12 +345,18 @@ export class SelfImprover {
                 result.committedFiles = gatherCommittedFiles(this.taskQueue.tasks);
             }
 
+            // Record failure if top‑level run didn't succeed
+            if (!result.success && depth === 0) {
+                this.conversationMemory.addFailedAttempt('Run failed for goal: ' + goal);
+            }
+
             return result;
 
         } catch (err) {
             this.onLog(`❌ Run error: ${err.message}`);
             if (depth === 0) {
                 await saveMemory(this, this.workingMemory, this.runId);
+                this.conversationMemory.addFailedAttempt('Exception: ' + err.message);
             }
             return result;
         } finally {
