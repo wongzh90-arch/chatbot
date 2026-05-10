@@ -67,7 +67,8 @@ export async function executeTaskAgentic(ctx, task) {
                 const fileMap = {};
                 for (const b of blocks) {
                     const path = b.file || targetFiles[0];
-                    const cleanContent = stripComments(b.content);
+                    const isHtml = /\.html?$/i.test(path);
+                    const cleanContent = isHtml ? b.content : stripComments(b.content);
                     fileMap[path] = {
                         content: cleanContent,
                         sha: shaMap[path] || null
