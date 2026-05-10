@@ -78,10 +78,11 @@ export class SelfImprover {
             );
             index = JSON.parse(content);
         } catch {}
-
+    
         const goalWords = goal.toLowerCase().match(/\b\w{3,}\b/g) || [];
         let scored = [];
-
+        const seen = new Set();   // avoid duplicates
+    
         if (index?.files) {
             for (const [filePath, data] of Object.entries(index.files)) {
                 const keywords = Array.isArray(data) ? data : (data.keywords || []);
@@ -90,23 +91,54 @@ export class SelfImprover {
                 );
                 if (hits.length) {
                     scored.push({ path: filePath, score: hits.length, summary: data.summary || '', hits });
+                    seen.add(filePath);
                 }
             }
-        } else {
+        }
+    
+        // ---- NEW: Add files explicitly mentioned in the goal (by filename or path) ----
+        const fileTree = this.fileTree || [];
+        for (const file of fileTree) {
+            const fileName = file.path.split('/').pop();   // just the filename
+            if (!seen.has(file.path) &&
+                (goal.toLowerCase().includes(file.path.toLowerCase()) ||
+                 goal.toLowerCase().includes(fileName.toLowerCase()))) {
+                // fetch the first few hundred chars for a summary if not already present
+                let summary = '';
+                try {
+                    const { content } = await GitHubService.loadFileContent(
+                        this.repo, this.branch, file.path, this.githubToken
+                    );
+                    summary = content.slice(0, 200).replace(/\n/g, ' ');
+                } catch {}
+                scored.push({ path: file.path, score: 100, summary, hits: ['explicit mention'] });
+                seen.add(file.path);
+            }
+        }
+    
+        // ---- Fallback: if no index, also scan by filename ----
+        if (!index) {
             const scanExts = /\.(js|jsx|html|css|toml|json)$/;
             const skipPaths = /node_modules|\.min\.|package-lock|yarn\.lock/;
-            scored = (this.fileTree || [])
-                .filter(f => scanExts.test(f.path) && !skipPaths.test(f.path))
-                .map(f => {
-                    const hits = goalWords.filter(w => f.path.includes(w));
-                    return { path: f.path, score: hits.length, summary: '', hits };
-                })
-                .filter(f => f.score > 0);
+            // Only add files not already matched
+            for (const file of fileTree) {
+                if (seen.has(file.path)) continue;
+                if (scanExts.test(file.path) && !skipPaths.test(file.path)) {
+                    const hits = goalWords.filter(w => file.path.includes(w));
+                    if (hits.length) {
+                        scored.push({ path: file.path, score: hits.length, summary: '', hits });
+                        seen.add(file.path);
+                    }
+                }
+            }
         }
-
+    
         scored.sort((a, b) => b.score - a.score);
         this.discoveryCache = scored.slice(0, 20);
         this.onLog(`📂 Discovered ${this.discoveryCache.length} relevant files`);
+        if (scored.some(f => f.hits.includes('explicit mention'))) {
+            this.onLog('📌 Explicit file match(es) added');
+        }
     }
 
     async runGoal(goal, depth = 0) {
