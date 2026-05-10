@@ -1,5 +1,6 @@
 /**
- * clarification.js – Generates clarifying questions, now driven by preferences.
+ * clarification.js – Generates clarifying questions with a timeout.
+ * If the user doesn't respond within 30 seconds, the original goal is used.
  */
 import { LLMProvider } from '../services/llmProvider.js';
 
@@ -41,10 +42,26 @@ Example: ["Which component should be changed?", "Should existing tests be preser
 
   if (!questions.length) return goal;
 
-  const userAnswers = await ctx.onClarificationNeeded(questions);
-  if (!userAnswers) return goal;
+  // Tell the user that a dialog is about to appear
+  ctx.onLog(`💬 Clarifying questions ready – please answer the prompt dialog within 30 seconds.`);
+
+  // Wrap the user response in a timeout
+  let userAnswers = null;
+  try {
+    const answerPromise = ctx.onClarificationNeeded(questions);
+    const timeout = new Promise((resolve) => setTimeout(() => resolve('__TIMEOUT__'), 30000));
+    userAnswers = await Promise.race([answerPromise, timeout]);
+
+    if (userAnswers === '__TIMEOUT__' || userAnswers === null || userAnswers.trim() === '') {
+      ctx.onLog('⏰ Clarification timed out or empty – proceeding with original goal.');
+      return goal;
+    }
+  } catch (e) {
+    ctx.onLog(`⚠️ Clarification dialog error: ${e.message} – proceeding anyway.`);
+    return goal;
+  }
 
   const enrichedGoal = `${goal}\n\nClarifications from user:\n${userAnswers}`;
-  ctx.onLog('✅ Clarification received — enriched goal recorded');
+  ctx.onLog('✅ Clarification received – enriched goal recorded');
   return enrichedGoal;
 }
