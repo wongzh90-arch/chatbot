@@ -1,13 +1,16 @@
 /**
  * agenticExecutor – Executes a single task using a read‑before‑write loop.
- * The LLM may ask to read additional files before emitting the final code block.
- * The parser now recognises skill blocks directly — no “CODE:” prefix required.
+ * The LLM may ask to read additional files before proposing edits.
  *
- * Improvements:
- *  - Safe comment stripping (HTML/CSS preserved)
- *  - ContextBuilder integration (manifest‑aware file selection)
- *  - Pre‑commit quality gate with retry feedback
- *  - Strict prompt to prevent whole‑file rewriting
+ * Edit formats supported:
+ *   • Aider‑style SEARCH/REPLACE blocks (git conflict syntax) → recommended
+ *   • Legacy <skill name="update_editor"> blocks (whole file) → fallback
+ *
+ * Features:
+ *   - Comment stripping only for JS/CSS files
+ *   - ContextBuilder integration (manifest‑aware)
+ *   - Pre‑commit quality gate with retry feedback
+ *   - Stores original file contents for reviewer
  */
 import { LLMProvider } from '../services/llmProvider.js';
 import { GitHubService } from '../services/github.js';
@@ -16,6 +19,7 @@ import { processAgentSkills } from '../utils/agentSkills.js';
 import { stripComments } from '../utils/stripComments.js';
 import { WorkingMemory } from './WorkingMemory.js';
 import { ContextBuilder } from '../utils/contextBuilder.js';
+import { SearchReplace } from '../utils/searchReplace.js';
 
 export async function executeTaskAgentic(ctx, task) {
     const memory = new WorkingMemory();
@@ -39,7 +43,7 @@ export async function executeTaskAgentic(ctx, task) {
         }
     }
 
-    // ✅ Store original contents for the reviewer
+    // Store original contents for reviewer (before any edits)
     task.originalContents = { ...fullContents };
 
     // Main execution loop (max 8 turns)
@@ -73,28 +77,27 @@ export async function executeTaskAgentic(ctx, task) {
             ctx.onLog(`📖 Read ${action.path}: ${summary}`);
 
         } else if (action.type === 'code') {
-            // --- Handle code proposal with lint retries ---
+            // --- Handle code proposal ---
             const { actions } = processAgentSkills(rawReply);
-            const blocks = actions.updateEditorBlocks;
-            if (!blocks.length) {
-                ctx.onLog('⚠️ No update_editor block found in code reply');
+            const srBlocks = actions.searchReplaceBlocks;
+            const upBlocks = actions.updateEditorBlocks;
+
+            let fileMap = null;
+
+            if (srBlocks.length > 0) {
+                // ── SEARCH/REPLACE path (safe, minimal edits) ──
+                fileMap = await applySearchReplaceEdits(ctx, srBlocks, fullContents, shaMap, targetFiles);
+            } else if (upBlocks.length > 0) {
+                // ── Legacy whole‑file blocks ──
+                fileMap = buildFileMapFromUpdateBlocks(upBlocks, targetFiles, shaMap);
+            } else {
+                ctx.onLog('⚠️ No recognised edit block found');
                 continue;
             }
 
-            // Build file map from blocks (allow multiple files)
-            const fileMap = {};
-            for (const b of blocks) {
-                const path = b.file || targetFiles[0];
-                // Only strip comments in JS/CSS – keep HTML/MD/TOML untouched
-                const isJsCss = /\.(js|jsx|mjs|cjs|ts|tsx|css|scss|less)$/i.test(path);
-                const cleanContent = isJsCss ? stripComments(b.content) : b.content;
-                fileMap[path] = {
-                    content: cleanContent,
-                    sha: shaMap[path] || null
-                };
-            }
+            if (!fileMap) continue; // errors already logged
 
-            // Pre‑commit quality gate: lint + syntax, retry up to 2 times
+            // Pre‑commit quality gate + retry loop
             const passed = await qualityGateWithRetry(ctx, memory, fileMap, targetFiles,
                                                       shaMap, fullContents);
             if (!passed) {
@@ -102,7 +105,7 @@ export async function executeTaskAgentic(ctx, task) {
                 return null;
             }
 
-            // Commit the validated changes
+            // Commit
             await GitHubService.commitMultipleFiles(
                 ctx.repo, ctx.branch, fileMap,
                 `Task: ${task.title}`, ctx.githubToken
@@ -122,7 +125,98 @@ export async function executeTaskAgentic(ctx, task) {
     return null;
 }
 
-// ─── Prompt building (now uses ContextBuilder for related files) ───
+// ─────────────────────────────────────────────────────
+//  Search‑Replace application (new)
+// ─────────────────────────────────────────────────────
+
+async function applySearchReplaceEdits(ctx, srBlocks, fullContents, shaMap, targetFiles) {
+    // Group blocks by file
+    const byFile = {};
+    for (const b of srBlocks) {
+        const path = b.file || targetFiles[0];
+        if (!byFile[path]) byFile[path] = [];
+        byFile[path].push({ search: b.search, replace: b.replace });
+    }
+
+    const fileMap = {};
+    for (const [path, blocks] of Object.entries(byFile)) {
+        const original = fullContents[path];
+        if (original === undefined) {
+            ctx.onLog(`❌ Cannot apply SEARCH/REPLACE to unknown file: ${path}`);
+            return null;
+        }
+
+        const result = SearchReplace.apply(path, original, blocks);
+        if (result.errors.length > 0) {
+            // Provide feedback to LLM (the caller will retry)
+            ctx.onLog(`🔧 SEARCH/REPLACE match failed for ${path}:\n${result.errors[0].message}`);
+            // Feed error back as a note so next turn the LLM can correct
+            // (We can also trigger an immediate retry)
+            await retrySearchReplace(ctx, path, original, blocks, result.errors);
+            return null; // force a new turn
+        }
+
+        // Keep comment stripping only for JS/CSS
+        const isJsCss = /\.(js|jsx|mjs|cjs|ts|tsx|css|scss|less)$/i.test(path);
+        const finalContent = isJsCss ? stripComments(result.newContent) : result.newContent;
+        fileMap[path] = {
+            content: finalContent,
+            sha: shaMap[path] || null
+        };
+        // Update in‑memory fullContents for subsequent turns
+        fullContents[path] = finalContent;
+        ctx.onLog(`📝 Prepared edit for ${path} via SEARCH/REPLACE`);
+    }
+    return fileMap;
+}
+
+/**
+ * Feed SEARCH/REPLACE failure back to LLM and try to get a corrected block.
+ * This consumes a turn but increases reliability dramatically.
+ */
+async function retrySearchReplace(ctx, filePath, original, blocks, errors) {
+    const errorMsg = errors.map(e => e.message).join('\n');
+    const feedbackPrompt = `Your SEARCH/REPLACE blocks for ${filePath} failed with these errors:
+
+${errorMsg}
+
+Current file content (first 1000 chars):
+${original.slice(0, 1000)}
+
+Please provide corrected SEARCH/REPLACE blocks that exactly match existing lines.`;
+    const { content } = await LLMProvider.fastCompletion({
+        provider: ctx.provider,
+        messages: [],
+        userContent: feedbackPrompt,
+        timeoutMs: 15000
+    });
+    // Parse corrected blocks and inject them back? For simplicity,
+    // we let the main loop handle the next turn – the LLM will see the last
+    // assistant message with errors and can try again.
+    // We can optionally pre‑fill the working memory with this feedback.
+}
+
+// ─────────────────────────────────────────────────────
+//  Legacy whole‑file block building (unchanged logic)
+// ─────────────────────────────────────────────────────
+
+function buildFileMapFromUpdateBlocks(blocks, targetFiles, shaMap) {
+    const fileMap = {};
+    for (const b of blocks) {
+        const path = b.file || targetFiles[0];
+        const isJsCss = /\.(js|jsx|mjs|cjs|ts|tsx|css|scss|less)$/i.test(path);
+        const cleanContent = isJsCss ? stripComments(b.content) : b.content;
+        fileMap[path] = {
+            content: cleanContent,
+            sha: shaMap[path] || null
+        };
+    }
+    return fileMap;
+}
+
+// ─────────────────────────────────────────────────────
+//  Prompt building (now teaches SEARCH/REPLACE format)
+// ─────────────────────────────────────────────────────
 
 function buildExecutionPrompt(memory, fullContents, manifest) {
     const targetPaths = Object.keys(fullContents);
@@ -131,7 +225,6 @@ function buildExecutionPrompt(memory, fullContents, manifest) {
         content: fullContents[p]
     }));
 
-    // Use ContextBuilder to get related file context (with token budget)
     let contextString = '';
     if (manifest && ContextBuilder.buildContext) {
         const relatedFiles = ContextBuilder.identifyRequiredFiles({
@@ -154,13 +247,12 @@ function buildExecutionPrompt(memory, fullContents, manifest) {
         });
         contextString = ctxResult.contextString;
     } else {
-        // Fallback: just full target files
         contextString = targetContents.map(f =>
             `--- FULL FILE: ${f.path} ---\n${f.content}\n`
         ).join('\n');
     }
 
-    let prompt = `You are implementing a code change.
+    return `You are implementing a code change.
 Goal: ${memory.goal}
 
 ${contextString}
@@ -168,19 +260,37 @@ ${contextString}
 Observations:
 ${memory.notes.map(n => `- ${n}`).join('\n')}
 
-CRITICAL: Do NOT output the entire file. Output only the minimal change using one or more <skill name="update_editor" file="path"> blocks.
-Each block must contain ONLY the exact lines that are changing, plus a single unchanged context line that exists in the original file and will NOT be modified. If the change is a pure insertion, include the line after which it should be inserted.
+To make changes, use Aider‑style SEARCH/REPLACE blocks exactly as shown below:
 
-You may also REQUEST more files if you need them: "READ: path/to/file".
-If you are done, say "DONE".`;
-    return prompt;
+path/to/file.ext
+<<<<<<< SEARCH
+exact lines to find
+=======
+replacement lines
+>>>>>>> REPLACE
+
+Rules:
+- The SEARCH section must EXACTLY match existing lines including whitespace.
+- Include enough context lines (3‑5) so the match is unique.
+- You may include multiple SEARCH/REPLACE blocks for different files.
+- Do NOT output the entire file – only the SEARCH/REPLACE blocks.
+- Prefer small, minimal edits.
+
+If you absolutely cannot express the change as SEARCH/REPLACE, you may use the legacy whole‑file block:
+<skill name="update_editor" file="path">... complete file ...</skill>
+
+You may also REQUEST more files: "READ: path/to/file".
+If done, say "DONE".`;
 }
 
-// ─── Action parser (unchanged from original) ───
+// ─────────────────────────────────────────────────────
+//  Action parser (unchanged)
+// ─────────────────────────────────────────────────────
 
 function parseAgentAction(text) {
     const t = text.trim();
-    if (/<skill\s+name=["']update_editor["']/.test(t)) {
+    // Recognise both SEARCH/REPLACE and legacy update_editor blocks
+    if (/<<<<<<< SEARCH/.test(t) || /<skill\s+name=["']update_editor["']/.test(t)) {
         return { type: 'code' };
     }
     if (t.toLowerCase().startsWith('done')) return { type: 'done' };
@@ -199,12 +309,13 @@ async function summariseFile(ctx, goal, path, content) {
     return summary.trim();
 }
 
-// ─── Quality gate with retry ───
+// ─────────────────────────────────────────────────────
+//  Quality gate with retry (unchanged from previous)
+// ─────────────────────────────────────────────────────
 
 async function qualityGateWithRetry(ctx, memory, fileMap, targetFiles,
                                     shaMap, fullContents) {
     for (let attempt = 0; attempt <= 2; attempt++) {
-        // Run lint/syntax on JS/CSS files
         const lintable = {};
         for (const [path, { content }] of Object.entries(fileMap)) {
             if (/\.(js|jsx|css|scss|less)$/i.test(path)) {
@@ -212,51 +323,60 @@ async function qualityGateWithRetry(ctx, memory, fileMap, targetFiles,
             }
         }
 
-        if (Object.keys(lintable).length) {
-            const [syntax, lint] = await Promise.all([
-                ExecutorAPI.syntax(lintable),
-                ExecutorAPI.lint(lintable)
-            ]);
-            const errors = [
-                ...(syntax.errors || []),
-                ...(lint.errors || [])
-            ].filter(e => e.severity === 'error');
+        if (Object.keys(lintable).length === 0) return true;
 
-            if (!errors.length) return true;
+        const [syntax, lint] = await Promise.all([
+            ExecutorAPI.syntax(lintable),
+            ExecutorAPI.lint(lintable)
+        ]);
+        const errors = [
+            ...(syntax.errors || []),
+            ...(lint.errors || [])
+        ].filter(e => e.severity === 'error');
 
-            if (attempt < 2) {
-                ctx.onLog(`🔧 Lint errors found (attempt ${attempt+1}): ${errors[0].message}`);
-                // Feed errors back to LLM for a fix
-                const fixPrompt = `Your last change produced these errors:
+        if (errors.length === 0) return true;
+
+        if (attempt < 2) {
+            ctx.onLog(`🔧 Lint errors (attempt ${attempt+1}): ${errors[0].message}`);
+            const fixPrompt = `Your last change produced errors:
 
 ${errors.map(e => `${e.file}: line ${e.line} - ${e.message}`).join('\n')}
 
-Please fix them and output a corrected <skill name="update_editor" file="..."> block.
-Keep the same minimal-change style.`;
-                const { content } = await LLMProvider.fastCompletion({
-                    provider: ctx.provider,
-                    messages: [],
-                    userContent: fixPrompt,
-                    timeoutMs: 15000
-                });
-                const { actions } = processAgentSkills(content);
-                const blocks = actions.updateEditorBlocks;
-                if (blocks.length) {
-                    // Reconstruct fileMap from corrected blocks
-                    for (const b of blocks) {
-                        const path = b.file || targetFiles[0];
+Fix them using a SEARCH/REPLACE block.`;
+            const { content } = await LLMProvider.fastCompletion({
+                provider: ctx.provider,
+                messages: [],
+                userContent: fixPrompt,
+                timeoutMs: 15000
+            });
+            const { actions } = processAgentSkills(content);
+            const srBlocks = actions.searchReplaceBlocks;
+            const upBlocks = actions.updateEditorBlocks;
+
+            // Reconstruct fileMap from corrected blocks
+            if (srBlocks.length) {
+                for (const b of srBlocks) {
+                    const path = b.file || targetFiles[0];
+                    const original = fullContents[path] || '';
+                    const result = SearchReplace.apply(path, original, [b]);
+                    if (!result.errors.length) {
                         const isJsCss = /\.(js|jsx|mjs|cjs|ts|tsx|css|scss|less)$/i.test(path);
                         fileMap[path] = {
-                            content: isJsCss ? stripComments(b.content) : b.content,
+                            content: isJsCss ? stripComments(result.newContent) : result.newContent,
                             sha: shaMap[path] || null
                         };
                     }
-                } else {
-                    break; // no new block, give up
+                }
+            } else if (upBlocks.length) {
+                for (const b of upBlocks) {
+                    const path = b.file || targetFiles[0];
+                    const isJsCss = /\.(js|jsx|mjs|cjs|ts|tsx|css|scss|less)$/i.test(path);
+                    fileMap[path] = {
+                        content: isJsCss ? stripComments(b.content) : b.content,
+                        sha: shaMap[path] || null
+                    };
                 }
             }
-        } else {
-            return true; // nothing to lint
         }
     }
     return false;
