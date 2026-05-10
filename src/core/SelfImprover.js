@@ -244,13 +244,11 @@ export class SelfImprover {
         // ── Post‑run actions ──
         let result = await runPostActions(this, goal, depth, allPassed);
 
-        // If regressions added new tasks, re‑run cycles
         if (!result.success && this.taskQueue.tasks.some(t => t.status === 'TODO')) {
             const { allPassed: secondPass } = await runCycles(this, depth);
             result = await runPostActions(this, goal, depth, secondPass);
         }
 
-        // If still not successful but all non‑sub‑goal tasks are done, mark success
         if (!result.success) {
             const allDone = this.taskQueue.tasks.every(
                 t => t.status === 'DONE' && !t.subGoal
@@ -261,7 +259,6 @@ export class SelfImprover {
             }
         }
 
-        // ── Report file changes ──
         if (result.committedFiles?.length) {
             for (const file of result.committedFiles) {
                 this.onFileChange?.(file, 'committed', null);
@@ -273,7 +270,6 @@ export class SelfImprover {
             }
         }
 
-        // ── Phase update ──
         if (result.success) {
             this.onPhaseChange?.('done', 'Run completed');
         } else {
@@ -294,8 +290,6 @@ export class SelfImprover {
     _markTaskReviewPassed(id) { markTaskReviewPassed(this, id); }
     _findTask(id) { return findTask(this, id); }
 }
-
-// ─── Helpers ───
 
 function topologicalSort(tasks) {
     const byId = {};
