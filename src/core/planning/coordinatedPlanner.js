@@ -9,9 +9,9 @@
  * The plan can contain either "files" (for simple tasks) or "subGoal" (for
  * complex, self‑contained sub‑problems) to feed hierarchical execution.
  */
-import { LLMProvider } from '../services/llmProvider.js';
-import { GitHubService } from '../services/github.js';
-import { initTaskQueue } from './taskQueue.js';
+import { LLMProvider } from '../../services/llmProvider.js';
+import { GitHubService } from '../../services/github.js';
+import { initTaskQueue } from '../taskQueue.js';
 
 /**
  * Main entry point – called from SelfImprover.runGoal().
