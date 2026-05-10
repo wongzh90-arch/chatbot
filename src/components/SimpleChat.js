@@ -18,7 +18,7 @@ export function SimpleChat({ services }) {
     const [isRunning, setIsRunning] = useState(false);
     const [toast, setToast] = useState(null);
     const [windowWidth, setWindowWidth] = useState(window.innerWidth);
-    const [pendingCommand, setPendingCommand] = useState(null);   // NEW state
+    const [pendingCommand, setPendingCommand] = useState(null);   // command queued while busy
 
     const workspace = useWorkspaceStore();
     const provider = useProviderStore();
@@ -43,12 +43,12 @@ export function SimpleChat({ services }) {
         setTimeout(() => setToast(null), 4000);
     };
 
-    // ─── Handle a command after the current run finishes ───
+    // ─── Run any queued command after the current job finishes ───
     const dispatchPending = () => {
         if (pendingCommand) {
             const cmdToRun = pendingCommand;
             setPendingCommand(null);
-            // Small delay to let React state updates settle
+            // small delay to let React state updates settle
             setTimeout(() => {
                 addMessage('user', cmdToRun);
                 handleSendText(cmdToRun);
@@ -56,11 +56,12 @@ export function SimpleChat({ services }) {
         }
     };
 
-    // ─── Core command logic (refactored out) ───
+    // ─── Core command processing (all commands) ───
     const handleSendText = async (text) => {
         const [cmd, ...argsArr] = text.split(' ');
         const args = argsArr.join(' ');
 
+        // ---- SELF‑IMPROVE ----
         if (cmd === '/self-improve') {
             if (!args) { addToast('Provide a goal', 'error'); return; }
             if (isRunning) {
@@ -73,11 +74,11 @@ export function SimpleChat({ services }) {
                 return;
             }
             setIsRunning(true);
-            setPendingCommand(null);   // clear any stale pending
+            setPendingCommand(null);
             addMessage('assistant', `🚀 Starting self‑improvement: "${args}"`);
             try {
                 improverRef.current = services.createImprover({
-                    onLog: (msg) => addMessage('assistant', msg),
+                    onLog: (msg) => addMessage('assistant', msg),   // all core logs appear here
                     onTaskUpdate: () => {
                         setTasks([...improverRef.current.taskQueue?.tasks] || []);
                     },
@@ -102,11 +103,12 @@ export function SimpleChat({ services }) {
                 setIsRunning(false);
                 addMessage('assistant', `❌ Startup error: ${err.message}`);
                 console.error('Self-improve crash:', err);
-                dispatchPending();   // still check for pending command
+                dispatchPending();
             }
             return;
         }
 
+        // ---- INDEX ----
         if (cmd === '/index') {
             if (isRunning) {
                 setPendingCommand(text);
@@ -120,45 +122,49 @@ export function SimpleChat({ services }) {
             setIsRunning(true);
             setPendingCommand(null);
             addMessage('assistant', '🔍 Indexing repo keywords...');
+
             const improver = services.createImprover({
-                onLog: (msg) => addMessage('assistant', msg),
+                onLog: (msg) => addMessage('assistant', msg),   // indexer logs appear here
                 onTaskUpdate: () => {},
-                onRunComplete: () => {
-                    setIsRunning(false);
-                    dispatchPending();   // check for queued command after indexing
-                },
+                // onRunComplete is not used by the indexer; we manage state ourselves
             });
+
             try {
                 await improver.fetchFileTree();
                 await improver.buildKeywordIndex();
             } catch (err) {
                 addMessage('assistant', `❌ Indexing failed: ${err.message}`);
-                setIsRunning(false);
-                dispatchPending();
+            } finally {
+                setIsRunning(false);      // ALWAYS turn off running
+                dispatchPending();        // run any queued /self-improve
             }
             return;
         }
 
+        // ---- PAUSE ----
         if (cmd === '/pause') {
             if (improverRef.current) improverRef.current.pause();
             addMessage('assistant', '⏸ Pause requested');
             return;
         }
 
+        // ---- HELP ----
         if (cmd === '/help') {
             addMessage('assistant', 'Commands: `/index`, `/self-improve "goal"`, `/pause`, `/clear`');
             return;
         }
 
+        // ---- CLEAR ----
         if (cmd === '/clear') {
             setMessages([{ role: 'assistant', content: 'Chat cleared.' }]);
             return;
         }
 
+        // ---- UNKNOWN ----
         addMessage('assistant', `Unknown command: ${cmd}. Type /help`);
     };
 
-    // ─── Input bar callback ───
+    // ─── User pressed Enter ───
     const handleSend = async () => {
         const text = input.trim();
         if (!text) return;
@@ -167,6 +173,7 @@ export function SimpleChat({ services }) {
         await handleSendText(text);
     };
 
+    // ─── UI ───
     return createElement('div', {
         style: {
             display: 'flex', flexDirection: 'column', height: '100vh',
