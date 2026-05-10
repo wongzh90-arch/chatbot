@@ -18,7 +18,6 @@ export class GitHubService {
         const res = await fetch(`https://api.github.com/repos/${repo}/contents/${path}?ref=${branch}`, { headers: this.headers(token) });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        // Proper UTF‑8 decoding
         const binary = atob(data.content);
         const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
         const content = new TextDecoder('utf-8').decode(bytes);
@@ -28,14 +27,11 @@ export class GitHubService {
     static async commitMultipleFiles(repo, branch, fileMap, message, token) {
         const base = `https://api.github.com/repos/${repo}`;
         const h = this.headers(token);
-        // Get current commit SHA
         const refRes = await fetch(`${base}/git/ref/heads/${branch}`, { headers: h });
         if (!refRes.ok) throw new Error(`Could not get branch ref`);
         const currentCommitSha = (await refRes.json()).object.sha;
-        // Get base tree
         const commitRes = await fetch(`${base}/git/commits/${currentCommitSha}`, { headers: h });
         const baseTreeSha = (await commitRes.json()).tree.sha;
-        // Create tree
         const tree = Object.entries(fileMap).map(([path, { content }]) => ({
             path, mode: '100644', type: 'blob', content
         }));
@@ -45,13 +41,11 @@ export class GitHubService {
         });
         if (!newTreeRes.ok) throw new Error(`Could not create tree`);
         const newTreeSha = (await newTreeRes.json()).sha;
-        // Create commit
         const newCommitRes = await fetch(`${base}/git/commits`, {
             method: 'POST', headers: h,
             body: JSON.stringify({ message, tree: newTreeSha, parents: [currentCommitSha] })
         });
         const newCommitSha = (await newCommitRes.json()).sha;
-        // Update branch
         const updateRes = await fetch(`${base}/git/refs/heads/${branch}`, {
             method: 'PATCH', headers: h,
             body: JSON.stringify({ sha: newCommitSha })
@@ -60,8 +54,26 @@ export class GitHubService {
         return { commitSha: newCommitSha };
     }
 
+    /**
+     * Create a new branch from the given source branch.
+     */
+    static async createBranch(repo, newBranch, sourceBranch, token) {
+        const base = `https://api.github.com/repos/${repo}`;
+        const h = this.headers(token);
+        // Get the SHA of the source branch's latest commit
+        const refRes = await fetch(`${base}/git/ref/heads/${sourceBranch}`, { headers: h });
+        if (!refRes.ok) throw new Error(`Could not get source branch: ${await refRes.text()}`);
+        const sha = (await refRes.json()).object.sha;
+        // Create the new branch
+        const createRes = await fetch(`${base}/git/refs`, {
+            method: 'POST', headers: h,
+            body: JSON.stringify({ ref: `refs/heads/${newBranch}`, sha })
+        });
+        if (!createRes.ok) throw new Error(`Could not create branch: ${await createRes.text()}`);
+        return newBranch;
+    }
+
     static async createPullRequest(repo, headBranch, title, baseBranch, token) {
-        // Auto‑detect default branch if baseBranch is null/undefined
         let base = baseBranch;
         if (!base) {
             const repoInfo = await fetch(`https://api.github.com/repos/${repo}`, { headers: this.headers(token) });
