@@ -18,6 +18,7 @@ export async function executeTaskAgentic(ctx, task) {
 
     // Pre‑load target files to get SHAs for commit
     const shaMap = {};
+    const fullContents = {};   // store full content for prompt
     for (const path of targetFiles) {
         try {
             const { content, sha } = await GitHubService.loadFileContent(
@@ -25,15 +26,23 @@ export async function executeTaskAgentic(ctx, task) {
             );
             memory.addFile(path, content, `Target file (already present): ${content.slice(0, 200)}`);
             shaMap[path] = sha;
-        } catch { /* will be null */ }
+            fullContents[path] = content;   // keep full for the prompt
+        } catch {
+            memory.notes.push(`Could not load ${path}`);
+        }
     }
 
+    // Build a prompt that includes the actual file contents
     for (let turn = 0; turn < 8; turn++) {
-        const prompt = buildExecutionPrompt(memory);
-        const { content } = await LLMProvider.fastCompletion({
+        const prompt = buildExecutionPrompt(memory, fullContents);
+        // Use the same model as the planner for more accuracy
+        const { content } = await LLMProvider.chatCompletion({
             provider: ctx.provider,
+            model: ctx.model,
             messages: [],
+            systemPrompt: 'You are a senior developer. Output exactly one action per turn.',
             userContent: prompt,
+            thinkingMode: false,
             timeoutMs: 20000
         });
 
@@ -50,6 +59,7 @@ export async function executeTaskAgentic(ctx, task) {
             const summary = await summariseFile(ctx, memory.goal, action.path, fileContent.slice(0, 3000));
             memory.addFile(action.path, fileContent, summary);
             memory.notes.push(`Read ${action.path}: ${summary}`);
+            fullContents[action.path] = fileContent;
         } else if (action.type === 'code') {
             // The reply should contain <skill name="update_editor" ...> blocks
             const { actions } = processAgentSkills(content);
@@ -92,25 +102,43 @@ export async function executeTaskAgentic(ctx, task) {
                 );
                 ctx.onLog(`✅ Committed ${Object.keys(fileMap).length} file(s)`);
                 return fileMap;
+            } else {
+                ctx.onLog('⚠️ No update_editor block found in code reply');
             }
         } else if (action.type === 'done') {
+            ctx.onLog('✅ Agent marked task as done');
             break;
         } else {
-            memory.notes.push(`Agent: ${content.slice(0, 200)}`);
+            ctx.onLog(`❓ Unknown action from LLM: ${content.slice(0, 200)}`);
         }
     }
+    ctx.onLog('❌ Executor ran out of turns');
     return null;
 }
 
-function buildExecutionPrompt(memory) {
-    return `You are implementing a code change. ${memory.goal}
-${memory.toPromptContext()}
+function buildExecutionPrompt(memory, fullContents) {
+    // Build the context: full content of target files, summaries of others
+    let prompt = `You are implementing a code change. ${memory.goal}\n\n`;
 
-Choose one action:
-- READ: path/to/file  (to inspect a file)
-- CODE: (output skill blocks with updated editor content)
-- DONE  (if change is complete)
-Output only the action.`;
+    // Full content of files we already have
+    const fileEntries = Object.entries(memory.files);
+    const targetPaths = Object.keys(fullContents);
+    for (const [path, data] of fileEntries) {
+        if (targetPaths.includes(path) && fullContents[path]) {
+            prompt += `--- FULL FILE: ${path} ---\n${fullContents[path]}\n\n`;
+        } else {
+            prompt += `--- CONTEXT: ${path} ---\n${data.summary}\n\n`;
+        }
+    }
+
+    prompt += `Observations:\n` + memory.notes.map(n => `- ${n}`).join('\n') + '\n\n';
+
+    prompt += `Choose exactly one action:
+- READ: path/to/file   (to inspect a file)
+- CODE: (output one or more <skill name="update_editor" file="...">...</skill> blocks with the complete new file contents)
+- DONE   (if the change is already committed)
+Output only the action, no other text.`;
+    return prompt;
 }
 
 function parseAgentAction(text) {
