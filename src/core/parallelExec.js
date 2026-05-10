@@ -4,7 +4,7 @@
  * and fast. Conflicts are avoided by skipping tasks that touch files already
  * being modified by another concurrent task.
  */
-import { executeTaskAgentic } from './agenticExecutor.js';
+import { executeTaskAgentic } from './execution/agenticExecutor.js';
 import { markTaskDone, markTaskFailed } from './taskQueue.js';
 
 export async function executeAllParallel(ctx, maxConcurrency = 3) {
