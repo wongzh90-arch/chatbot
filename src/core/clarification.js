@@ -20,6 +20,7 @@ ${customPrompt ? `\nAdditional instructions:\n${customPrompt}\n` : ''}
 Generate 2–4 short, specific clarifying questions that would help the agent avoid mistakes. The user doesn't know how to code.
 Focus on: scope (which files/components), edge cases, constraints, and success criteria.
 Return ONLY a JSON array of question strings, no preamble.
+Example: ["Which component should be changed?", "Should existing tests be preserved?"]`;
 
   let questions = [];
   try {
@@ -29,7 +30,8 @@ Return ONLY a JSON array of question strings, no preamble.
       messages: [],
       systemPrompt: 'You generate clarifying questions. Output only JSON arrays.',
       userContent: prompt,
-      thinkingMode: false
+      thinkingMode: false,
+      timeoutMs: 15000
     });
     questions = JSON.parse(reply.content.replace(/```json|```/g, '').trim());
   } catch (e) {
