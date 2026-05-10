@@ -1,4 +1,16 @@
+/**
+ * ContextBuilder – Builds a prompt context string by selecting target
+ * and related files from a manifest, respecting a token budget.
+ */
 export class ContextBuilder {
+    /**
+     * Identify which files are needed.
+     * @param {object} options
+     * @param {string[]} options.targetFiles – list of target file paths
+     * @param {object}  options.manifest    – manifest from ManifestBuilder
+     * @param {number}  options.maxFiles    – max number of files (default 10)
+     * @returns {string[]} – ordered list of paths
+     */
     static identifyRequiredFiles({ targetFiles, manifest, maxFiles = 10 }) {
         if (!manifest) return targetFiles.slice(0, maxFiles);
         const selected = new Set(targetFiles);
@@ -7,12 +19,13 @@ export class ContextBuilder {
             const entry = manifest[f];
             if (!entry) continue;
             (entry.imports || []).forEach(impName => {
-                for (const [p, e] of Object.entries(manifest)) {
-                    if (e.exports.includes(impName)) selected.add(p);
-                }
+                // manifest keys are paths; impName might be a variable name,
+                // but manifestBuilder already resolves them to file paths.
+                // We assume manifest entries are keyed by file path.
+                if (manifest[impName]) selected.add(impName);
             });
         }
-        // Add consumers
+        // Add consumers (files that import target files)
         for (const f of targetFiles) {
             const entry = manifest[f];
             if (entry) (entry.importedBy || []).forEach(p => selected.add(p));
@@ -23,6 +36,10 @@ export class ContextBuilder {
         return [...targetsFirst, ...others].slice(0, maxFiles);
     }
 
+    /**
+     * Build a string context with target files fully and related files
+     * as interface-only (first 2000 chars).
+     */
     static buildContext({ targetContents, relatedContents, manifest, tokenBudget = 20000 }) {
         let context = '## Target files (full content)\n';
         for (const f of targetContents) {
@@ -36,41 +53,6 @@ export class ContextBuilder {
                 context += `\n<file path="${f.path}" interface-only>\n${interfaceContent}\n</file>\n`;
             }
         }
-        return { contextString: context, tokensUsed: context.length / 4};
-    }
-}
-
-/**
- * Retrieves the user's notes from localStorage.
- * @returns {string} The parsed notes text, or '' if none stored.
- */
-export function getNotes() {
-    try {
-        const stored = localStorage.getItem('user_notes');
-        // If stored is a string, parse it; otherwise return ''
-        if (stored !== null) {
-            try {
-                const parsed = JSON.parse(stored);
-                return typeof parsed === 'string' ? parsed : '';
-            } catch {
-                // If parsing fails, treat the raw string as the notes
-                return stored;
-            }
-        }
-    } catch {
-        // localStorage access might fail (e.g., SSG)
-    }
-    return '';
-}
-
-/**
- * Saves the user's notes to localStorage.
- * @param {string} text - The notes text to store.
- */
-export function setNotes(text) {
-    try {
-        localStorage.setItem('user_notes', JSON.stringify(text));
-    } catch {
-        // Silently fail if localStorage is unavailable
+        return { contextString: context, tokensUsed: context.length / 4 };
     }
 }
