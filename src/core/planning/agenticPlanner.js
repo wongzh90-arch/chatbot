@@ -1,10 +1,10 @@
 /**
  * agenticPlanner – (full file with hierarchical sub‑goal support in final plan prompt)
  */
-import { LLMProvider } from '../services/llmProvider.js';
-import { GitHubService } from '../services/github.js';
-import { WorkingMemory } from './WorkingMemory.js';
-import { initTaskQueue } from './taskQueue.js';
+import { LLMProvider } from '../../services/llmProvider.js';
+import { GitHubService } from '../../services/github.js';
+import { WorkingMemory } from '../WorkingMemory.js';
+import { initTaskQueue } from '../taskQueue.js';
 
 export async function agenticPlan(ctx, goal) {
     const memory = new WorkingMemory();
