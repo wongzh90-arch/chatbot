@@ -1,6 +1,6 @@
 import React from 'react';
 import { RunCard } from './RunCard.js';
-const { createElement, useRef } = React;
+const { createElement } = React;
 
 export function ChatPane({ messages, chatEndRef, windowWidth, runState, isRunning, onPause }) {
     const isMobile = windowWidth < 768;
@@ -12,7 +12,6 @@ export function ChatPane({ messages, chatEndRef, windowWidth, runState, isRunnin
     return createElement('div', { style: chatAreaStyle },
         (isRunning || runState) && createElement(RunCard, { runState, isRunning, onPause, windowWidth }),
         messages.map((m, i) => {
-            if (isRunning && m.role === 'assistant') return null;
             return createElement('div', { key: i, style: m.role === 'user' ? userMsgStyle : agentMsgStyle },
                 createElement('div', { style: { fontSize: isMobile ? 13 : 11, color: '#aaa', marginBottom: 4 } }, m.role === 'user' ? 'You' : 'Agent'),
                 createElement('div', { style: { whiteSpace: 'pre-wrap' } }, m.content)
