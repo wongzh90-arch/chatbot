@@ -39,6 +39,9 @@ export async function executeTaskAgentic(ctx, task) {
         }
     }
 
+    // ✅ Store original contents for the reviewer
+    task.originalContents = { ...fullContents };
+
     // Main execution loop (max 8 turns)
     for (let turn = 0; turn < 8; turn++) {
         const prompt = buildExecutionPrompt(memory, fullContents, ctx.manifest);
