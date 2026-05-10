@@ -1,27 +1,21 @@
-/**
- * SelfImprover – Main orchestrator.
- * Delegates to focused modules for setup, execution, and post‑run actions.
- */
+import { GitHubService } from '../services/github.js';
+import { LLMProvider } from '../services/llmProvider.js';
+import { saveMemory } from './persistentMemory.js';
+import { chunkedBuildIndex } from './chunkedIndexer.js';
+import { initTaskQueue, getPendingTasks, getDoneTasks,
+         markTaskDone, markTaskFailed, markTaskTodo, markTaskReviewPassed, findTask } from './taskQueue.js';
+
 import { setupRun } from './orchestration/runSetup.js';
 import { runCycles } from './orchestration/cycleExecutor.js';
 import { runPostActions } from './orchestration/postRunActions.js';
-import { createPauseController } from './orchestration/pauseController.js';
 import { ClarificationQueue } from './orchestration/clarificationQueue.js';
 import { createPlan } from './planning/plannerFactory.js';
-import { runClarification } from './clarification.js';
-import {
-    initTaskQueue, getPendingTasks, getDoneTasks,
-    markTaskDone, markTaskFailed, markTaskTodo, markTaskReviewPassed, findTask
-} from './taskQueue.js';
-import { chunkedBuildIndex } from './chunkedIndexer.js';
-import { GitHubService } from '../services/github.js';
-import { saveMemory } from './persistentMemory.js';
 
 export class SelfImprover {
     constructor({ repo, branch, githubToken, provider, model, thinkingMode,
                   reasoningEffort, netlitySiteName,
                   onLog, onTaskUpdate, onRunComplete, onClarificationNeeded,
-                  preferences, onTokenUpdate }) {
+                  preferences, onTokenUpdate, onPhaseChange, onFileChange }) {
         this.repo = repo;
         this.originalBranch = branch;
         this.branch = branch;
@@ -37,6 +31,8 @@ export class SelfImprover {
         this.onClarificationNeeded = onClarificationNeeded || null;
         this.preferences = preferences || null;
         this.onTokenUpdate = onTokenUpdate || (() => {});
+        this.onPhaseChange = onPhaseChange || (() => {});
+        this.onFileChange = onFileChange || (() => {});
 
         this.manifest = null;
         this.fileTree = null;
@@ -136,50 +132,64 @@ export class SelfImprover {
             return { success: false };
         }
 
-        // --- Setup ---
+        // ── Setup ──
         const { enrichedGoal } = await setupRun(this, goal, depth);
         this.currentGoal = enrichedGoal;
 
-        // --- Clarification ---
+        // ── Clarification ──
         if (depth === 0 && !this.clarificationQueue) {
             this.clarificationQueue = new ClarificationQueue(
                 this.conversationMemory,
                 (questions) => {
-                    this.onLog('❓ Please answer these:\n' +
-                        questions.map((q, i) => `${i + 1}. ${q}`).join('\n'));
+                    if (this.onClarificationNeeded) {
+                        // still show in RunCard via onLog, but the queue handles waiting
+                        this.onLog('❓ Please answer these:\n' +
+                            questions.map((q, i) => `${i + 1}. ${q}`).join('\n'));
+                    }
                 }
             );
         }
 
-        // Try to restore pending questions (after page reload)
+        let clarificationAnswers = '';
         const restoredPromise = this.clarificationQueue?.restoreFromMemory();
         if (restoredPromise) {
-            const answers = await restoredPromise;
-            if (answers) {
-                goal = `${goal}\n\nClarifications from user:\n${answers}`;
-                this.currentGoal = goal;
+            clarificationAnswers = await restoredPromise;
+            if (clarificationAnswers) {
+                this.currentGoal = `${enrichedGoal}\n\nClarifications from user:\n${clarificationAnswers}`;
+                this.onLog('💬 Clarification answers loaded from memory');
             }
         } else {
-            const clarificationAnswers = await runClarification(this, enrichedGoal);
-            if (clarificationAnswers !== enrichedGoal) {
-                this.currentGoal = clarificationAnswers;
+            // Generate questions via LLM
+            const { questions } = await generateClarificationQuestions(this, enrichedGoal);
+            if (questions && questions.length) {
+                this.onPhaseChange?.('clarifying', 'Awaiting answers...');
+                const userResponse = await this.clarificationQueue.request(questions, 300000);
+                if (userResponse && userResponse.trim()) {
+                    clarificationAnswers = userResponse.trim();
+                    this.currentGoal = `${enrichedGoal}\n\nClarifications from user:\n${clarificationAnswers}`;
+                    this.onLog('✅ Clarification received – continuing');
+                } else {
+                    this.onLog('⏰ No clarification received – continuing with original goal');
+                }
             }
         }
 
-        this.onLog(`🚀 Goal: ${goal}${depth > 0 ? ` (sub‑goal, depth ${depth})` : ''}`);
+        this.onLog(`🚀 Goal: ${this.currentGoal}${depth > 0 ? ` (sub‑goal, depth ${depth})` : ''}`);
+        this.onPhaseChange?.('planning', 'Planning...');
 
-        // --- Plan ---
+        // ── Plan ──
         const planResult = await createPlan(this, this.currentGoal);
         if (!planResult?.tasks?.length) {
             this.onLog('❌ No tasks generated');
-            if (depth === 0) this.conversationMemory.addFailedAttempt('No tasks generated');
+            if (depth === 0) this.conversationMemory?.addFailedAttempt('No tasks generated');
             return { success: false };
         }
 
         this.conversationMemory?.setPhase('executing');
         this.conversationMemory?.setLastAction('Execution started');
+        this.onPhaseChange?.('executing', 'Executing...');
 
-        // --- Execute sub‑goals sequentially, then normal tasks ---
+        // ── Execute sub‑goals sequentially, then normal tasks ──
         const tasks = this.taskQueue.tasks;
         const normalTasks = [];
 
@@ -197,7 +207,7 @@ export class SelfImprover {
                     onTaskUpdate: () => {},
                     onRunComplete: () => {},
                     onClarificationNeeded: this.onClarificationNeeded,
-                    preferences: this.preferences
+                    preferences: this.preferences,
                 });
                 child.parentGoal = goal;
                 child.parentWorkingMemory = this.workingMemory;
@@ -232,10 +242,10 @@ export class SelfImprover {
             this.taskQueue.nextId = Math.max(...this.taskQueue.tasks.map(t => t.id), 0) + 1;
         }
 
-        // --- Execute/Review cycles ---
+        // ── Execute/review cycles ──
         const { allPassed } = await runCycles(this, depth);
 
-        // --- Post‑run ---
+        // ── Post‑run actions ──
         let result = await runPostActions(this, goal, depth, allPassed);
 
         // If regressions added new tasks, re‑run cycles
@@ -244,10 +254,10 @@ export class SelfImprover {
             result = await runPostActions(this, goal, depth, secondPass);
         }
 
-        // Fallback: if postRunActions didn't set success but all tasks done
+        // If still not successful but all non‑sub‑goal tasks are done, mark success
         if (!result.success) {
             const allDone = this.taskQueue.tasks.every(
-                t => t.status === 'DONE' && t.subGoal == null
+                t => t.status === 'DONE' && !t.subGoal
             );
             if (allDone) {
                 result.success = true;
@@ -255,11 +265,25 @@ export class SelfImprover {
             }
         }
 
-        if (!result.success && depth === 0) {
-            this.conversationMemory?.addFailedAttempt('Run failed for goal: ' + goal);
+        // ── Report file changes ──
+        if (result.committedFiles?.length) {
+            for (const file of result.committedFiles) {
+                this.onFileChange?.(file, 'committed', null);
+            }
+        }
+        if (depth === 0) {
+            if (!result.success) {
+                this.conversationMemory?.addFailedAttempt('Run failed for goal: ' + goal);
+            }
         }
 
-        try { this.onRunComplete(result); } catch {}
+        // ── Phase update ──
+        if (result.success) {
+            this.onPhaseChange?.('done', 'Run completed');
+        } else {
+            this.onPhaseChange?.('failed', 'Run failed');
+        }
+
         return result;
     }
 
@@ -274,6 +298,8 @@ export class SelfImprover {
     _markTaskReviewPassed(id) { markTaskReviewPassed(this, id); }
     _findTask(id) { return findTask(this, id); }
 }
+
+// ─── Helpers ───
 
 function topologicalSort(tasks) {
     const byId = {};
@@ -303,4 +329,32 @@ function gatherCommittedFiles(taskList) {
         (t.committedFiles || []).forEach(f => all.add(f));
     }
     return [...all];
+}
+
+async function generateClarificationQuestions(ctx, goal) {
+    const prefs = ctx.preferences?.clarification || {};
+    const prompt = `You are helping an autonomous coding agent understand a user request before it starts making code changes.
+The user's goal is: "${goal}"
+Repository: ${ctx.repo}, branch: ${ctx.branch}
+Generate 2–4 short, specific clarifying questions that would help the agent avoid mistakes. The user doesn't know how to code.
+Focus on: scope (which files/components), edge cases, constraints, and success criteria.
+Return ONLY a JSON array of question strings, no preamble.
+Example: ["Which component should be changed?", "Should existing tests be preserved?"]`;
+
+    try {
+        const reply = await LLMProvider.chatCompletion({
+            provider: ctx.provider,
+            model: ctx.model,
+            messages: [],
+            systemPrompt: 'You generate clarifying questions. Output only JSON arrays.',
+            userContent: prompt,
+            thinkingMode: false,
+            timeoutMs: 15000
+        });
+        const questions = JSON.parse(reply.content.replace(/```json|```/g, '').trim());
+        return { questions };
+    } catch (e) {
+        ctx.onLog(`⚠️ Could not generate clarifying questions: ${e.message}`);
+        return { questions: [] };
+    }
 }
