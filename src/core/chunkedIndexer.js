@@ -7,6 +7,27 @@
 import { GitHubService } from '../services/github.js';
 import { LLMProvider } from '../services/llmProvider.js';
 
+/**
+ * Robust JSON extraction: find the outermost { ... } block.
+ * Removes markdown fences and any text outside the JSON.
+ */
+function extractJsonObject(text) {
+    const cleaned = text
+        .replace(/```json|```/g, '')     // drop markdown fences
+        .replace(/\/\/[^\n]*/g, '')      // remove single-line comments
+        .replace(/,\s*}/g, '}')          // remove trailing commas
+        .replace(/,\s*]/g, ']')          // remove trailing commas in arrays
+        .trim();
+
+    // Find the outermost { }
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start === -1 || end === -1 || end <= start) {
+        throw new Error('No JSON object found');
+    }
+    return cleaned.slice(start, end + 1);
+}
+
 export async function chunkedBuildIndex(ctx) {
     const scannable = (ctx.fileTree || []).filter(f =>
         /\.(js|jsx|html|css|toml|json)$/.test(f.path) &&
@@ -37,15 +58,20 @@ export async function chunkedBuildIndex(ctx) {
 Files:
 ${fileContents.map(f => `### ${f.path}\n${f.content}`).join('\n\n')}`;
 
-        const { content } = await LLMProvider.fastCompletion({
+        // Use the selected model for better JSON quality
+        const { content } = await LLMProvider.chatCompletion({
             provider: ctx.provider,
+            model: ctx.model,               // use the user's chosen model (e.g. deepseek-v4-flash)
             messages: [],
+            systemPrompt: 'You are a code indexer. Output only valid JSON, no markdown.',
             userContent: prompt,
+            thinkingMode: false,
             timeoutMs: 20000
         });
 
         try {
-            const partial = JSON.parse(content.replace(/```json|```/g, '').trim());
+            const jsonStr = extractJsonObject(content);
+            const partial = JSON.parse(jsonStr);
             for (const [path, data] of Object.entries(partial.files)) {
                 mergedIndex.files[path] = {
                     keywords: Array.isArray(data) ? data : (data.keywords || []),
@@ -53,7 +79,8 @@ ${fileContents.map(f => `### ${f.path}\n${f.content}`).join('\n\n')}`;
                 };
             }
         } catch (e) {
-            ctx.onLog(`⚠️ Chunk parse error: ${e.message}`);
+            ctx.onLog(`⚠️ Chunk parse error: ${e.message}. Skipping chunk of ${group.length} files.`);
+            // Continue with next chunk
         }
     }
 
