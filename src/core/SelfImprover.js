@@ -15,7 +15,7 @@ export class SelfImprover {
     constructor({ repo, branch, githubToken, provider, model, thinkingMode,
                   reasoningEffort, netlitySiteName,
                   onLog, onTaskUpdate, onRunComplete, onClarificationNeeded,
-                  preferences, onTokenUpdate, onPhaseChange, onFileChange }) {
+                  preferences, onTokenUpdate, onPhaseChange, onFileChange, onProgress }) {
         this.repo = repo;
         this.originalBranch = branch;
         this.branch = branch;
@@ -33,6 +33,7 @@ export class SelfImprover {
         this.onTokenUpdate = onTokenUpdate || (() => {});
         this.onPhaseChange = onPhaseChange || (() => {});
         this.onFileChange = onFileChange || (() => {});
+        this.onProgress = onProgress || (() => {});
 
         this.manifest = null;
         this.fileTree = null;
@@ -141,11 +142,7 @@ export class SelfImprover {
             this.clarificationQueue = new ClarificationQueue(
                 this.conversationMemory,
                 (questions) => {
-                    if (this.onClarificationNeeded) {
-                        // still show in RunCard via onLog, but the queue handles waiting
-                        this.onLog('❓ Please answer these:\n' +
-                            questions.map((q, i) => `${i + 1}. ${q}`).join('\n'));
-                    }
+                    this.onLog('❓ ' + questions.map((q, i) => `${i + 1}. ${q}`).join('\n'));
                 }
             );
         }
@@ -159,7 +156,6 @@ export class SelfImprover {
                 this.onLog('💬 Clarification answers loaded from memory');
             }
         } else {
-            // Generate questions via LLM
             const { questions } = await generateClarificationQuestions(this, enrichedGoal);
             if (questions && questions.length) {
                 this.onPhaseChange?.('clarifying', 'Awaiting answers...');
