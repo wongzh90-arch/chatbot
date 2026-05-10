@@ -18,7 +18,9 @@ const services = {
     contextBuilder: ContextBuilder,
     agentSkills: processAgentSkills,
     smokeTest: SmokeTest,
-    createImprover: ({ netlitySiteName, onLog, onTaskUpdate, onRunComplete, onClarificationNeeded }) => {
+    createImprover: ({ netlitySiteName, onLog, onTaskUpdate, onRunComplete,
+                       onClarificationNeeded, onTokenUpdate, onPhaseChange,
+                       onFileChange, onProgress }) => {
         const { currentRepo, currentBranch, githubToken } = useWorkspaceStore.getState();
         const { provider, selectedModel, thinkingMode, reasoningEffort } = useProviderStore.getState();
         return new SelfImprover({
@@ -34,11 +36,14 @@ const services = {
             onTaskUpdate,
             onRunComplete,
             onClarificationNeeded,
+            onTokenUpdate,
+            onPhaseChange,
+            onFileChange,
+            onProgress
         });
     }
 };
 
-// Automatically load GitHub token from Netlify env if none is stored locally
 (async () => {
     const { githubToken, setGithubToken } = useWorkspaceStore.getState();
     if (!githubToken) {
