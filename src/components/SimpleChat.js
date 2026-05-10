@@ -18,6 +18,8 @@ export function SimpleChat({ services }) {
     const [isRunning, setIsRunning] = useState(false);
     const [toast, setToast] = useState(null);
     const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+    const [pendingCommand, setPendingCommand] = useState(null);   // NEW state
+
     const workspace = useWorkspaceStore();
     const provider = useProviderStore();
     const improverRef = useRef(null);
@@ -41,28 +43,37 @@ export function SimpleChat({ services }) {
         setTimeout(() => setToast(null), 4000);
     };
 
-    const handleSend = async () => {
-        const text = input.trim();
-        if (!text) return;
-        setInput('');
-        addMessage('user', text);
-
-        if (!text.startsWith('/')) {
-            addMessage('assistant', 'Please use a slash command. Type /help');
-            return;
+    // ─── Handle a command after the current run finishes ───
+    const dispatchPending = () => {
+        if (pendingCommand) {
+            const cmdToRun = pendingCommand;
+            setPendingCommand(null);
+            // Small delay to let React state updates settle
+            setTimeout(() => {
+                addMessage('user', cmdToRun);
+                handleSendText(cmdToRun);
+            }, 100);
         }
+    };
 
+    // ─── Core command logic (refactored out) ───
+    const handleSendText = async (text) => {
         const [cmd, ...argsArr] = text.split(' ');
         const args = argsArr.join(' ');
 
         if (cmd === '/self-improve') {
             if (!args) { addToast('Provide a goal', 'error'); return; }
-            if (isRunning) { addToast('Already running – use /pause first', 'warning'); return; }
+            if (isRunning) {
+                setPendingCommand(text);
+                addMessage('assistant', '⏳ Command queued – will run when current task finishes.');
+                return;
+            }
             if (!workspace.currentRepo || !workspace.githubToken) {
                 addMessage('assistant', '❌ Please fill in the repository and GitHub token fields first.');
                 return;
             }
             setIsRunning(true);
+            setPendingCommand(null);   // clear any stale pending
             addMessage('assistant', `🚀 Starting self‑improvement: "${args}"`);
             try {
                 improverRef.current = services.createImprover({
@@ -74,6 +85,7 @@ export function SimpleChat({ services }) {
                         setIsRunning(false);
                         if (success) addMessage('assistant', `✅ PR opened: ${prUrl}`);
                         else addMessage('assistant', `❌ Self‑improvement failed.`);
+                        dispatchPending();   // check for queued command
                     },
                     onClarificationNeeded: async (questions) => {
                         addMessage('assistant', '❓ Please answer these:\n' +
@@ -90,30 +102,40 @@ export function SimpleChat({ services }) {
                 setIsRunning(false);
                 addMessage('assistant', `❌ Startup error: ${err.message}`);
                 console.error('Self-improve crash:', err);
+                dispatchPending();   // still check for pending command
             }
             return;
         }
 
         if (cmd === '/index') {
-            if (isRunning) { addToast('Already running', 'warning'); return; }
+            if (isRunning) {
+                setPendingCommand(text);
+                addMessage('assistant', '⏳ Command queued – will run when current task finishes.');
+                return;
+            }
             if (!workspace.currentRepo || !workspace.githubToken) {
                 addMessage('assistant', '❌ Please fill in the repository and GitHub token fields first.');
                 return;
             }
             setIsRunning(true);
+            setPendingCommand(null);
             addMessage('assistant', '🔍 Indexing repo keywords...');
             const improver = services.createImprover({
                 onLog: (msg) => addMessage('assistant', msg),
                 onTaskUpdate: () => {},
-                onRunComplete: () => { setIsRunning(false); },
+                onRunComplete: () => {
+                    setIsRunning(false);
+                    dispatchPending();   // check for queued command after indexing
+                },
             });
             try {
                 await improver.fetchFileTree();
                 await improver.buildKeywordIndex();
             } catch (err) {
                 addMessage('assistant', `❌ Indexing failed: ${err.message}`);
+                setIsRunning(false);
+                dispatchPending();
             }
-            setIsRunning(false);
             return;
         }
 
@@ -134,6 +156,15 @@ export function SimpleChat({ services }) {
         }
 
         addMessage('assistant', `Unknown command: ${cmd}. Type /help`);
+    };
+
+    // ─── Input bar callback ───
+    const handleSend = async () => {
+        const text = input.trim();
+        if (!text) return;
+        setInput('');
+        addMessage('user', text);
+        await handleSendText(text);
     };
 
     return createElement('div', {
