@@ -7,19 +7,13 @@
 import { GitHubService } from '../services/github.js';
 import { LLMProvider } from '../services/llmProvider.js';
 
-/**
- * Robust JSON extraction: find the outermost { ... } block.
- * Removes markdown fences and any text outside the JSON.
- */
 function extractJsonObject(text) {
     const cleaned = text
-        .replace(/```json|```/g, '')     // drop markdown fences
-        .replace(/\/\/[^\n]*/g, '')      // remove single-line comments
-        .replace(/,\s*}/g, '}')          // remove trailing commas in objects
-        .replace(/,\s*]/g, ']')          // remove trailing commas in arrays
+        .replace(/```json|```/g, '')
+        .replace(/\/\/[^\n]*/g, '')
+        .replace(/,\s*}/g, '}')
+        .replace(/,\s*]/g, ']')
         .trim();
-
-    // Find the outermost { }
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
     if (start === -1 || end === -1 || end <= start) {
@@ -34,32 +28,27 @@ export async function chunkedBuildIndex(ctx) {
         !/node_modules|\.min\.|package-lock|yarn\.lock/.test(f.path)
     );
 
-    const groups = chunk(scannable, 5);   // smaller chunks = faster replies
+    const groups = chunk(scannable, 5);
     const mergedIndex = { files: {} };
-
-    // Progress report
     ctx.onLog(`🔢 Total files to index: ${scannable.length}. Groups: ${groups.length}`);
 
     for (const group of groups) {
         const groupIndex = groups.indexOf(group) + 1;
         ctx.onLog(`🔍 Indexing group ${groupIndex} of ${groups.length} (${group.length} files)…`);
 
-        // Gather file contents for this chunk
         const fileContents = [];
         for (const f of group) {
             try {
                 const { content } = await GitHubService.loadFileContent(
                     ctx.repo, ctx.branch, f.path, ctx.githubToken
                 );
-                fileContents.push({
-                    path: f.path,
-                    content: content.slice(0, 2000)   // keep prompt short
-                });
+                fileContents.push({ path: f.path, content: content.slice(0, 2000) });
             } catch { /* skip unreachable files */ }
         }
 
         if (!fileContents.length) {
             ctx.onLog(`⏭ Group ${groupIndex} empty, skipped`);
+            if (ctx.onProgress) ctx.onProgress(Math.round((groupIndex / groups.length) * 100));
             continue;
         }
 
@@ -68,7 +57,6 @@ export async function chunkedBuildIndex(ctx) {
 Files:
 ${fileContents.map(f => `### ${f.path}\n${f.content}`).join('\n\n')}`;
 
-        // Attempt 1: use the user’s selected model (may be slower but smarter)
         let content = null;
         let success = false;
 
@@ -80,7 +68,7 @@ ${fileContents.map(f => `### ${f.path}\n${f.content}`).join('\n\n')}`;
                 systemPrompt: 'You are a code indexer. Output only valid JSON, no markdown.',
                 userContent: prompt,
                 thinkingMode: false,
-                timeoutMs: 30000            // 30 seconds for normal model
+                timeoutMs: 30000
             });
             content = result.content;
             success = true;
@@ -88,24 +76,23 @@ ${fileContents.map(f => `### ${f.path}\n${f.content}`).join('\n\n')}`;
             ctx.onLog(`⚠️ Group ${groupIndex}: First attempt failed (${err.message}). Trying with fast model...`);
         }
 
-        // Attempt 2 (fallback): cheap fast model with longer timeout
         if (!success) {
             try {
                 const result = await LLMProvider.fastCompletion({
                     provider: ctx.provider,
                     messages: [],
                     userContent: prompt,
-                    timeoutMs: 35000         // 35 seconds for fallback
+                    timeoutMs: 35000
                 });
                 content = result.content;
                 success = true;
             } catch (err) {
                 ctx.onLog(`❌ Group ${groupIndex}: Fallback also failed: ${err.message}. Skipping this group.`);
+                if (ctx.onProgress) ctx.onProgress(Math.round((groupIndex / groups.length) * 100));
                 continue;
             }
         }
 
-        // Parse the response
         try {
             const jsonStr = extractJsonObject(content);
             const partial = JSON.parse(jsonStr);
@@ -119,9 +106,10 @@ ${fileContents.map(f => `### ${f.path}\n${f.content}`).join('\n\n')}`;
         } catch (e) {
             ctx.onLog(`⚠️ Group ${groupIndex}: Chunk parse error: ${e.message}. Skipping.`);
         }
+
+        if (ctx.onProgress) ctx.onProgress(Math.round((groupIndex / groups.length) * 100));
     }
 
-    // Commit the merged index to the repo
     const fileMap = {
         'keywords.json': { content: JSON.stringify(mergedIndex, null, 2), sha: null }
     };
