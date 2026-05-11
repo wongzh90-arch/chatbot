@@ -21,16 +21,18 @@ const services = {
     createImprover: ({ netlitySiteName, onLog, onTaskUpdate, onRunComplete,
                        onClarificationNeeded, onTokenUpdate, onPhaseChange,
                        onFileChange, onProgress }) => {
-        const { currentRepo, currentBranch, githubToken } = useWorkspaceStore.getState();
-        const { provider, selectedModel, thinkingMode, reasoningEffort } = useProviderStore.getState();
+        // Get state safely inside React component context
+        const workspaceState = useWorkspaceStore.getState();
+        const providerState = useProviderStore.getState();
+        
         return new SelfImprover({
-            repo: currentRepo,
-            branch: currentBranch,
-            githubToken,
-            provider,
-            model: selectedModel,
-            thinkingMode,
-            reasoningEffort,
+            repo: workspaceState.currentRepo,
+            branch: workspaceState.currentBranch,
+            githubToken: workspaceState.githubToken,
+            provider: providerState.provider,
+            model: providerState.selectedModel,
+            thinkingMode: providerState.thinkingMode,
+            reasoningEffort: providerState.reasoningEffort,
             netlitySiteName: netlitySiteName || '',
             onLog,
             onTaskUpdate,
@@ -44,23 +46,6 @@ const services = {
     }
 };
 
-(async () => {
-    const { githubToken, setGithubToken } = useWorkspaceStore.getState();
-    if (!githubToken) {
-        try {
-            const res = await fetch('/.netlify/functions/github-token');
-            if (res.ok) {
-                const data = await res.json();
-                if (data.token) {
-                    setGithubToken(data.token);
-                    console.log('✅ GitHub token loaded from Netlify environment');
-                }
-            }
-        } catch (e) {
-            console.warn('Could not fetch GitHub token from Netlify:', e);
-        }
-    }
-})();
-
+// GitHub token loading moved to SimpleChat component useEffect
 const root = createRoot(document.getElementById('root'));
 root.render(React.createElement(SimpleChat, { services }));
