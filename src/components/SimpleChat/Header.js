@@ -2,89 +2,85 @@ import React from 'react';
 import { useWorkspaceStore } from '../../stores/workspaceStore.js';
 import { useProviderStore } from '../../stores/providerStore.js';
 
-export function Header({ isRunning, windowWidth }) {
+export function Header({ isRunning, windowWidth, settings, setSettings }) {
     const workspace = useWorkspaceStore();
     const provider = useProviderStore();
     const isMobile = windowWidth < 768;
 
     const containerStyle = {
-        padding: '12px 16px',
-        borderBottom: '1px solid #222',
+        padding: '10px 16px',
+        borderBottom: '1px solid #1a1a1a',
         display: 'flex',
-        flexWrap: 'wrap',
-        gap: 8,
         alignItems: 'center',
+        gap: 12,
         background: '#0a0a0a',
-        flexDirection: isMobile ? 'column' : 'row',
-    };
-
-    const inputStyle = {
-        background: '#1a1a1a',
-        border: '1px solid #333',
-        borderRadius: 6,
-        padding: '8px 12px',
-        color: 'white',
-        fontSize: isMobile ? 18 : 14,
-        width: isMobile ? '100%' : 150,
-    };
-
-    const buttonStyle = {
-        background: '#222',
-        border: 'none',
-        borderRadius: 6,
-        padding: '8px 14px',
-        fontSize: isMobile ? 18 : 14,
-        color: 'white',
-        width: isMobile ? '100%' : 'auto',
+        flexShrink: 0,
     };
 
     return React.createElement('div', { style: containerStyle },
+        React.createElement('button', {
+            onClick: () => setSettings(s => ({ ...s, sidebarOpen: !s.sidebarOpen })),
+            style: {
+                background: 'none',
+                border: 'none',
+                color: '#888',
+                fontSize: 18,
+                cursor: 'pointer',
+                padding: '4px 8px',
+                borderRadius: 4,
+                lineHeight: 1,
+                minHeight: 32,
+                minWidth: 32
+            }
+        }, '☰'),
+
         React.createElement('strong', {
             style: {
                 color: '#f59e0b',
-                fontSize: isMobile ? 22 : 20,
+                fontSize: isMobile ? 17 : 15,
                 whiteSpace: 'nowrap',
+                letterSpacing: 0.3
             }
         }, 'Self‑Recursive Bot'),
 
-        React.createElement('div', {
+        !settings.sidebarOpen && workspace.currentRepo && React.createElement('span', {
             style: {
-                display: 'flex', gap: 8, flex: 1, flexWrap: 'wrap',
-                flexDirection: isMobile ? 'column' : 'row',
+                color: '#555',
+                fontSize: 11,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                maxWidth: 120,
+                fontFamily: 'monospace'
             }
-        },
-            React.createElement('input', {
-                placeholder: 'owner/repo',
-                value: workspace.currentRepo,
-                onChange: e => workspace.setCurrentRepo(e.target.value),
-                style: inputStyle,
-            }),
-            React.createElement('input', {
-                placeholder: 'branch',
-                value: workspace.currentBranch,
-                onChange: e => workspace.setCurrentBranch(e.target.value),
-                style: inputStyle,
-            }),
-            React.createElement('input', {
-                type: 'password',
-                placeholder: 'GitHub PAT',
-                value: workspace.githubToken,
-                onChange: e => workspace.setGithubToken(e.target.value),
-                style: inputStyle,
-            }),
-        ),
+        }, workspace.currentRepo),
+
+        React.createElement('div', { style: { flex: 1 } }),
 
         React.createElement('button', {
             onClick: () => provider.setProvider(provider.provider === 'deepseek' ? 'openrouter' : 'deepseek'),
-            style: buttonStyle,
+            style: {
+                background: '#141414',
+                border: '1px solid #2a2a2a',
+                borderRadius: 6,
+                padding: '5px 10px',
+                fontSize: 11,
+                color: '#888',
+                cursor: 'pointer',
+                textTransform: 'uppercase',
+                letterSpacing: 0.5
+            },
         }, provider.provider),
 
         isRunning && React.createElement('span', {
             style: {
                 color: '#f59e0b',
-                fontSize: isMobile ? 16 : 14,
-                ...(isMobile ? { width: '100%', textAlign: 'center' } : {}),
+                fontSize: 11,
+                whiteSpace: 'nowrap',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4
             }
-        }, '⚙️ Running...')
+        }, React.createElement('span', { style: { animation: 'pulse 1.5s infinite' } }, '●'), 'Running')
     );
 }
