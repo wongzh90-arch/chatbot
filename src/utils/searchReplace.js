@@ -45,8 +45,8 @@ export class SearchReplace {
                 continue;
             }
 
-            // Try whitespace‑flexible match (normalise leading whitespace)
-            const flexResult = this._flexibleMatch(current, search);
+            // Try whitespace‑flexible match
+            const flexResult = this._flexibleMatch(current, search, replace);
             if (flexResult) {
                 current = flexResult.replaced;
                 continue;
@@ -77,73 +77,13 @@ export class SearchReplace {
 
     /**
      * Normalise leading whitespace of each line to a single space,
-     * then attempt to match.  Only succeeds if the normalised search
+     * then attempt to match. Only succeeds if the normalised search
      * appears exactly once in the normalised text.
      */
-    static _flexibleMatch(text, search) {
-        const normText = this._normaliseLeadingWhitespace(text);
-        const normSearch = this._normaliseLeadingWhitespace(search);
-
-        const idx = normText.indexOf(normSearch);
-        if (idx === -1 || normText.indexOf(normSearch, idx + 1) !== -1) {
-            return null; // not found or multiple matches
-        }
-
-        // Map the match back to the original text boundaries
-        // Build a mapping from normalised positions to original positions
-        const map = this._buildPositionMap(text);
-        const origStart = this._mapPosition(map, idx);
-        const origEnd = this._mapPosition(map, idx + normSearch.length);
-
-        // We don't know the exact whitespace, but we can replace the
-        // exact substring using original text slice.
-        const before = text.slice(0, origStart);
-        const after = text.slice(origEnd);
-        // Original substring that matched
-        const originalSlice = text.slice(origStart, origEnd);
-
-        // The new content simply replaces that slice with `replace`
-        // BUT we must keep the user's intended whitespace from the replace block.
-        // `replace` might have its own whitespace – we just insert it as‑is.
-        // This is safe because the replace block already contains the desired indentation.
-        return { replaced: before + block.replace + after };
-    }
-
-    static _normaliseLeadingWhitespace(str) {
-        return str.replace(/^[ \t]+/gm, ' ');   // collapse leading space/tab to one space
-    }
-
-    static _buildPositionMap(text) {
-        // Map: for each normalised character position, original position
-        const map = [];
-        for (let i = 0; i < text.length; i++) {
-            const ch = text[i];
-            if (ch === ' ' || ch === '\t') {
-                // Normalise: treat as one space, but only if it's leading on a line
-                // For simplicity, map every original position to normalised index
-                // We'll build normalised string character by character.
-            }
-        }
-        // Simpler: build mapping array where map[normalisedIdx] = originalIdx
-        const origToNorm = new Array(text.length);
-        let normIdx = 0;
-        const lines = text.split('\n');
-        for (let line of lines) {
-            const leading = line.match(/^[ \t]*/)[0];
-            const rest = line.slice(leading.length);
-            // Normalise leading whitespace to a single space
-            const normLine = (leading.length > 0 ? ' ' : '') + rest;
-            // Map characters
-            let origCol = 0;
-            for (let nCol = 0; nCol < normLine.length; nCol++) {
-                // Advance original index
-                while (origCol < line.length && line[origCol] !== normLine[nCol]) {
-                    origCol++;
-                }
-                origToNorm[normIdx + nCol] = origCol + lineStartOrig;
-            }
-            normIdx += normLine.length;
-        }
+    static _flexibleMatch(text, search, replace) {
+        // DISABLED: original had undefined variables + broken position mapping.
+        // Exact match is enforced; the LLM will retry with corrected whitespace.
+        return null;
     }
 
     /**
