@@ -13,7 +13,7 @@ import { createPlan } from './planning/plannerFactory.js';
 
 export class SelfImprover {
     constructor({ repo, branch, githubToken, provider, model, thinkingMode,
-                  reasoningEffort, netlitySiteName,
+                  reasoningEffort, netlifySiteName,
                   onLog, onTaskUpdate, onRunComplete, onClarificationNeeded,
                   preferences, onTokenUpdate, onPhaseChange, onFileChange }) {
         this.repo = repo;
@@ -24,7 +24,7 @@ export class SelfImprover {
         this.model = model;
         this.thinkingMode = thinkingMode;
         this.reasoningEffort = reasoningEffort;
-        this.netlitySiteName = netlitySiteName || '';
+        this.netlifySiteName = netlifySiteName || '';
         this.onLog = onLog || (() => {});
         this.onTaskUpdate = onTaskUpdate || (() => {});
         this.onRunComplete = onRunComplete || (() => {});
@@ -138,40 +138,39 @@ export class SelfImprover {
         const { enrichedGoal } = await setupRun(this, goal, depth);
         this.currentGoal = enrichedGoal;
 
-        // ── Clarification (using ClarificationQueue) ──
-        if (depth === 0 && !this.clarificationQueue) {
-            this.clarificationQueue = new ClarificationQueue(
-                this.conversationMemory,
-                (questions) => {
-                    // The questions are already displayed via onLog, no extra UI needed
-                }
-            );
-        }
-
-        // Check if there are pending questions from a previous session (page reload)
-        if (depth === 0 && this.clarificationQueue.isPending()) {
-            const restoredPromise = this.clarificationQueue.restoreFromMemory();
-            if (restoredPromise) {
-                const answers = await restoredPromise;
-                if (answers) {
-                    this.currentGoal = `${enrichedGoal}\n\nClarifications from user:\n${answers}`;
-                    this.onLog('💬 Clarification answers loaded from memory');
-                }
+        // ── Clarification (top-level only) ──
+        if (depth === 0) {
+            if (!this.clarificationQueue) {
+                this.clarificationQueue = new ClarificationQueue(
+                    this.conversationMemory,
+                    (questions) => {
+                        // The questions are already displayed via onLog, no extra UI needed
+                    }
+                );
             }
-        } else {
-            // Generate clarification questions
-            const { questions } = await generateClarificationQuestions(this, enrichedGoal);
-            if (questions && questions.length) {
-                this.onPhaseChange?.('clarifying', 'Awaiting answers...');
-                this.onLog('❓ Please answer these:\n' +
-                    questions.map((q, i) => `${i + 1}. ${q}`).join('\n'));
-                // Wait for user answer via the queue (the UI will call resolve())
-                const userResponse = await this.clarificationQueue.request(questions, 300000);
-                if (userResponse && userResponse.trim()) {
-                    this.currentGoal = `${enrichedGoal}\n\nClarifications from user:\n${userResponse.trim()}`;
-                    this.onLog('✅ Clarification received – continuing');
-                } else {
-                    this.onLog('⏰ No clarification received – continuing with original goal');
+
+            if (this.clarificationQueue.isPending()) {
+                const restoredPromise = this.clarificationQueue.restoreFromMemory();
+                if (restoredPromise) {
+                    const answers = await restoredPromise;
+                    if (answers) {
+                        this.currentGoal = `${enrichedGoal}\n\nClarifications from user:\n${answers}`;
+                        this.onLog('💬 Clarification answers loaded from memory');
+                    }
+                }
+            } else {
+                const { questions } = await generateClarificationQuestions(this, enrichedGoal);
+                if (questions && questions.length) {
+                    this.onPhaseChange?.('clarifying', 'Awaiting answers...');
+                    this.onLog('❓ Please answer these:\n' +
+                        questions.map((q, i) => `${i + 1}. ${q}`).join('\n'));
+                    const userResponse = await this.clarificationQueue.request(questions, 300000);
+                    if (userResponse && userResponse.trim()) {
+                        this.currentGoal = `${enrichedGoal}\n\nClarifications from user:\n${userResponse.trim()}`;
+                        this.onLog('✅ Clarification received – continuing');
+                    } else {
+                        this.onLog('⏰ No clarification received – continuing with original goal');
+                    }
                 }
             }
         }
@@ -204,7 +203,7 @@ export class SelfImprover {
                     repo: this.repo, branch: this.branch, githubToken: this.githubToken,
                     provider: this.provider, model: this.model,
                     thinkingMode: this.thinkingMode, reasoningEffort: this.reasoningEffort,
-                    netlitySiteName: this.netlitySiteName,
+                    netlifySiteName: this.netlifySiteName,
                     onLog: (msg) => this.onLog(`  [sub] ${msg}`),
                     onTaskUpdate: () => {},
                     onRunComplete: () => {},
