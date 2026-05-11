@@ -73,15 +73,18 @@ export class GitHubService {
         return newBranch;
     }
 
-    // Add this static method to the GitHubService class
     static async compareCommits(repo, base, head, token) {
         const res = await fetch(
             `https://api.github.com/repos/${repo}/compare/${base}...${head}`,
-            { headers: this.headers(token) }
+            { 
+                headers: {
+                    ...this.headers(token),
+                    'Accept': 'application/vnd.github.v3.diff'
+                } 
+            }
         );
         if (!res.ok) throw new Error(`Compare API error: ${res.status}`);
-        const data = await res.json();
-        return data.diff || '';
+        return await res.text();
     }
     
     static async createPullRequest(repo, headBranch, title, baseBranch, token) {
