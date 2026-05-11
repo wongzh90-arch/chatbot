@@ -6,7 +6,6 @@ import { ExecutorAPI } from '../../services/executorApi.js';
 import { LLMProvider } from '../../services/llmProvider.js';
 import { processAgentSkills } from '../../utils/agentSkills.js';
 import { SearchReplace } from '../../utils/searchReplace.js';
-import { stripComments } from '../../utils/stripComments.js';
 
 export async function qualityGateWithRetry(ctx, memory, fileMap, targetFiles, shaMap, fullContents) {
     for (let attempt = 0; attempt <= 2; attempt++) {
@@ -50,9 +49,8 @@ export async function qualityGateWithRetry(ctx, memory, fileMap, targetFiles, sh
                     const original = fullContents[path] || '';
                     const result = SearchReplace.apply(path, original, [b]);
                     if (!result.errors.length) {
-                        const isJsCss = /\.(js|jsx|mjs|cjs|ts|tsx|css|scss|less)$/i.test(path);
                         fileMap[path] = {
-                            content: isJsCss ? stripComments(result.newContent) : result.newContent,
+                            content: result.newContent, // FIXED: Don't strip comments!
                             sha: shaMap[path] || null
                         };
                     }
@@ -60,9 +58,8 @@ export async function qualityGateWithRetry(ctx, memory, fileMap, targetFiles, sh
             } else if (upBlocks.length) {
                 for (const b of upBlocks) {
                     const path = b.file || targetFiles[0];
-                    const isJsCss = /\.(js|jsx|mjs|cjs|ts|tsx|css|scss|less)$/i.test(path);
                     fileMap[path] = {
-                        content: isJsCss ? stripComments(b.content) : b.content,
+                        content: b.content, // FIXED: Don't strip comments!
                         sha: shaMap[path] || null
                     };
                 }
