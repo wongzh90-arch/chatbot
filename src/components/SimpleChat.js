@@ -2,8 +2,8 @@ import React from 'react';
 import { useWorkspaceStore } from '../stores/workspaceStore.js';
 import { useProviderStore } from '../stores/providerStore.js';
 import { Header } from './SimpleChat/Header.js';
+import { Sidebar } from './SimpleChat/Sidebar.js';
 import { ChatPane } from './SimpleChat/ChatPane.js';
-import { TaskList } from './SimpleChat/TaskList.js';
 import { InputBar } from './SimpleChat/InputBar.js';
 import { Toaster } from './SimpleChat/Toaster.js';
 
@@ -14,17 +14,29 @@ export function SimpleChat({ services }) {
         { role: 'assistant', content: 'Ready. Type `/self-improve "goal"` to start.' }
     ]);
     const [input, setInput] = useState('');
-    const [tasks, setTasks] = useState([]);
     const [isRunning, setIsRunning] = useState(false);
     const [toast, setToast] = useState(null);
     const [windowWidth, setWindowWidth] = useState(window.innerWidth);
     const [pendingCommand, setPendingCommand] = useState(null);
 
-    // ── Live run state (for RunCard) ──
+    // ── Settings & sidebar ──
+    const [settings, setSettings] = useState(() => {
+        try {
+            const raw = localStorage.getItem('srb-settings');
+            return raw ? JSON.parse(raw) : { theme: 'dark', fontSize: 'md', compact: false, sidebarOpen: true };
+        } catch {
+            return { theme: 'dark', fontSize: 'md', compact: false, sidebarOpen: true };
+        }
+    });
+    useEffect(() => {
+        localStorage.setItem('srb-settings', JSON.stringify(settings));
+    }, [settings]);
+
+    // ── Live run state ──
     const [runState, setRunState] = useState(null);
     const runStateRef = useRef(null);
 
-    // ── Error log state ──
+    // ── Error log ──
     const [errorLog, setErrorLog] = useState('');
     const [showErrorLog, setShowErrorLog] = useState(false);
 
@@ -74,7 +86,6 @@ export function SimpleChat({ services }) {
         const [cmd, ...argsArr] = text.split(' ');
         const args = argsArr.join(' ');
 
-        // ─── SELF‑IMPROVE ───
         if (cmd === '/self-improve') {
             if (!args) { addToast('Provide a goal', 'error'); return; }
             if (isRunning) {
@@ -123,7 +134,6 @@ export function SimpleChat({ services }) {
                             tasks: t.map(t => ({ title: t.title, status: t.status })),
                             progress: total > 0 ? ((done + failed) / total) * 100 : 0
                         });
-                        setTasks([...t]);
                     },
                     onRunComplete: ({ success, prUrl }) => {
                         setIsRunning(false);
@@ -137,7 +147,6 @@ export function SimpleChat({ services }) {
                         else addMessage('assistant', `❌ Self‑improvement failed.`);
                         dispatchPending();
                     },
-                    // No onClarificationNeeded – we'll use the ClarificationQueue directly
                     onTokenUpdate: (used, budget) => {
                         if (budget) setTokenPercent(Math.min(100, Math.round((used / budget) * 100)));
                     },
@@ -161,7 +170,6 @@ export function SimpleChat({ services }) {
             return;
         }
 
-        // ─── INDEX ───
         if (cmd === '/index') {
             if (isRunning) {
                 setPendingCommand(text);
@@ -217,7 +225,6 @@ export function SimpleChat({ services }) {
             return;
         }
 
-        // ─── PAUSE ───
         if (cmd === '/pause') {
             addMessage('user', text);
             if (improverRef.current) improverRef.current.pause();
@@ -226,20 +233,17 @@ export function SimpleChat({ services }) {
             return;
         }
 
-        // ─── HELP ───
         if (cmd === '/help') {
             addMessage('user', text);
             addMessage('assistant', 'Commands: `/index`, `/self-improve "goal"`, `/pause`, `/clear`, `/context`');
             return;
         }
 
-        // ─── CLEAR ───
         if (cmd === '/clear') {
             setMessages([{ role: 'assistant', content: 'Chat cleared.' }]);
             return;
         }
 
-        // ─── CONTEXT ───
         if (cmd === '/context') {
             addMessage('user', text);
             const improver = services.createImprover({
@@ -256,7 +260,6 @@ export function SimpleChat({ services }) {
             return;
         }
 
-        // ─── UNKNOWN ───
         addMessage('user', text);
         addMessage('assistant', `Unknown command: ${cmd}. Type /help`);
     };
@@ -266,10 +269,8 @@ export function SimpleChat({ services }) {
         if (!text) return;
         setInput('');
 
-        // Check if clarification is pending – route answer to the queue
         if (runStateRef.current?.phase === 'clarifying' &&
             improverRef.current?.clarificationQueue?.isPending()) {
-            // Send as clarification answer
             addMessage('user', text);
             improverRef.current.clarificationQueue.resolve(text);
             updateRunState({ phase: 'planning', label: 'Continuing...' });
@@ -285,33 +286,37 @@ export function SimpleChat({ services }) {
         : '#333';
 
     return createElement('div', {
-        style: { display: 'flex', flexDirection: 'column', height: '100vh', background: '#0a0a0a', color: '#e5e5e5' }
+        style: { display: 'flex', flexDirection: 'row', height: '100%', background: '#0a0a0a', color: '#e5e5e5', overflow: 'hidden' }
     },
-        createElement(Header, { isRunning, windowWidth }),
-        tokenPercent !== null && createElement('div', { style: { height: 4, background: '#1a1a1a', width: '100%' } },
-            createElement('div', {
-                style: { height: '100%', width: `${tokenPercent}%`, background: tokenBarColor, transition: 'width 0.3s' }
-            })
-        ),
-        createElement(ChatPane, {
-            messages, chatEndRef, windowWidth,
-            runState, isRunning,
-            onPause: () => improverRef.current?.pause()
-        }),
-        createElement('div', { style: { padding: '0 12px' } },
-            createElement('button', {
-                onClick: () => setShowErrorLog(!showErrorLog),
-                style: { background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 12, marginBottom: 4 }
-            }, showErrorLog ? '▲ Hide error log' : '▼ Paste error log'),
-            showErrorLog && createElement('textarea', {
-                value: errorLog,
-                onChange: e => setErrorLog(e.target.value),
-                placeholder: 'Paste stack trace or error message here...',
-                rows: 4,
-                style: { width: '100%', background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, padding: 8, color: 'white', fontSize: 13, resize: 'vertical', marginBottom: 8 }
-            })
-        ),
-        createElement(InputBar, { input, setInput, onSend: handleSend, windowWidth }),
-        createElement(Toaster, { toast })
+        createElement(Sidebar, { settings, setSettings, workspace, provider, runState, isRunning, windowWidth }),
+        createElement('div', { style: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 } },
+            createElement(Header, { isRunning, windowWidth, settings, setSettings }),
+            tokenPercent !== null && createElement('div', { style: { height: 3, background: '#1a1a1a', width: '100%', flexShrink: 0 } },
+                createElement('div', {
+                    style: { height: '100%', width: `${tokenPercent}%`, background: tokenBarColor, transition: 'width 0.3s' }
+                })
+            ),
+            createElement(ChatPane, {
+                messages, chatEndRef, windowWidth,
+                runState, isRunning,
+                onPause: () => improverRef.current?.pause(),
+                settings
+            }),
+            createElement('div', { style: { padding: '0 12px', flexShrink: 0 } },
+                createElement('button', {
+                    onClick: () => setShowErrorLog(!showErrorLog),
+                    style: { background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 11, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }
+                }, showErrorLog ? '▲ Hide error log' : '▼ Paste error log'),
+                showErrorLog && createElement('textarea', {
+                    value: errorLog,
+                    onChange: e => setErrorLog(e.target.value),
+                    placeholder: 'Paste stack trace or error message here...',
+                    rows: 3,
+                    style: { width: '100%', background: '#111', border: '1px solid #222', borderRadius: 6, padding: 8, color: 'white', fontSize: 12, resize: 'vertical', marginBottom: 8 }
+                })
+            ),
+            createElement(InputBar, { input, setInput, onSend: handleSend, windowWidth, settings }),
+            createElement(Toaster, { toast })
+        )
     );
 }
