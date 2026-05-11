@@ -11,7 +11,7 @@ export default async (request) => {
   try {
     const requestBody = await request.json();
     
-    // Respect the client's stream setting; default to true only if not specified
+    // Respect the client's stream setting; default to true for long requests
     if (requestBody.stream === undefined) {
       requestBody.stream = true;
     }
@@ -33,7 +33,7 @@ export default async (request) => {
       });
     }
 
-    // If streaming, return SSE; otherwise return plain JSON
+    // If streaming, return SSE immediately (no timeout on response body)
     if (requestBody.stream) {
       return new Response(upstreamRes.body, {
         status: 200,
