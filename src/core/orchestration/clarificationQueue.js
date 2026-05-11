@@ -15,6 +15,7 @@ export class ClarificationQueue {
         this.onShowQuestions = onShowQuestions; // callback to add questions to chat
         this._pendingResolve = null;
         this._timeout = null;
+        this._currentQuestions = [];
     }
 
     /**
@@ -22,6 +23,8 @@ export class ClarificationQueue {
      * with the user's answers (string) or empty string if timed out.
      */
     async request(questions, timeoutMs = 300000) { // 5 min default
+        this._currentQuestions = questions;
+        
         // Save to memory so we persist across page reloads
         this.memory?._save({
             ...this.memory._load(),
@@ -29,7 +32,7 @@ export class ClarificationQueue {
             clarificationTimestamp: Date.now()
         });
 
-        // Show questions in chat
+        // Show questions in chat via callback
         if (this.onShowQuestions) {
             this.onShowQuestions(questions);
         }
@@ -65,12 +68,18 @@ export class ClarificationQueue {
         return this._pendingResolve !== null;
     }
 
+    /** Get current questions for display */
+    getCurrentQuestions() {
+        return this._currentQuestions;
+    }
+
     /** Clear saved questions from memory */
     clear() {
         const mem = this.memory?._load() || {};
         delete mem.clarificationQuestions;
         delete mem.clarificationTimestamp;
         this.memory?._save(mem);
+        this._currentQuestions = [];
     }
 
     /** Restore pending questions from memory (after page reload) */
