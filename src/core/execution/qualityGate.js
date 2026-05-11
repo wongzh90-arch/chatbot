@@ -23,15 +23,16 @@ export async function qualityGateWithRetry(ctx, memory, fileMap, targetFiles, sh
             ExecutorAPI.syntax(lintable),
             ExecutorAPI.lint(lintable)
         ]);
-        const errors = [
-            ...(syntax.errors || []),
-            ...(lint.errors || [])
-        ].filter(e => e.severity === 'error');
+
+        // FIX: Ensure syntax errors are treated as errors (they lack a severity field)
+        const syntaxErrors = (syntax.errors || []).map(e => ({ ...e, severity: 'error' }));
+        const allErrors = [...syntaxErrors, ...(lint.errors || [])];
+        const errors = allErrors.filter(e => e.severity === 'error');
 
         if (errors.length === 0) return true;
 
         if (attempt < 2) {
-            ctx.onLog(`🔧 Lint errors (attempt ${attempt + 1}): ${errors[0].message}`);
+            ctx.onLog(`🔧 Lint/syntax errors (attempt ${attempt + 1}): ${errors[0].message}`);
             const fixPrompt = `Your last change produced errors:\n\n${errors.map(e => `${e.file}: line ${e.line} - ${e.message}`).join('\n')}\n\nFix them using a SEARCH/REPLACE block.`;
             const { content } = await LLMProvider.fastCompletion({
                 provider: ctx.provider,
