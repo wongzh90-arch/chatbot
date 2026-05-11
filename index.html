@@ -6,19 +6,22 @@
     <title>Self‑Recursive Bot</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
+        html, body {
             font-family: 'Roboto', sans-serif;
             background: #0a0a0a;
             color: #e5e5e5;
             -webkit-font-smoothing: antialiased;
+            height: 100%;
             overflow: hidden;
         }
         #root {
-            height: 100vh;
-            height: -webkit-fill-available; /* for mobile Safari */
+            height: 100dvh;
+            height: -webkit-fill-available;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -26,14 +29,17 @@
         #root input, #root select, #root button, #root textarea {
             color: white;
             font-family: inherit;
-            font-size: 16px; /* prevent iOS zoom on focus */
+            font-size: 16px;
         }
         button {
             cursor: pointer;
-            min-height: 44px; /* touch target size */
+            min-height: 44px;
             min-width: 44px;
         }
-        /* Mobile-specific tweaks will be in React components */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #444; }
     </style>
     <script type="importmap">
         {
