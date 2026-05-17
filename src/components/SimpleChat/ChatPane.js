@@ -5,6 +5,8 @@ const { createElement } = React;
 
 export function ChatPane({ messages, chatEndRef, windowWidth, runState, isRunning, onPause, settings }) {
     const isMobile = windowWidth < 768;
+    const isLight = settings.theme === 'light';
+
     const chatAreaStyle = {
         flex: 1,
         overflowY: 'auto',
@@ -13,16 +15,16 @@ export function ChatPane({ messages, chatEndRef, windowWidth, runState, isRunnin
         flexDirection: 'column',
         gap: settings.compact ? 10 : 18,
         WebkitOverflowScrolling: 'touch',
-        background: '#0a0a0a'
+        background: isLight ? '#f5f5f5' : '#0a0a0a'
     };
 
     const userMsgStyle = {
         alignSelf: 'flex-end',
         maxWidth: isMobile ? '92%' : '80%',
-        background: '#171717',
+        background: isLight ? '#e8e8e8' : '#171717',
         borderRadius: 12,
         padding: '10px 14px',
-        border: '1px solid #262626'
+        border: `1px solid ${isLight ? '#ccc' : '#262626'}`
     };
 
     const agentMsgStyle = {
@@ -39,7 +41,7 @@ export function ChatPane({ messages, chatEndRef, windowWidth, runState, isRunnin
                 createElement('div', {
                     style: {
                         fontSize: isMobile ? 10 : 9,
-                        color: '#555',
+                        color: isLight ? '#888' : '#555',
                         marginBottom: 6,
                         fontWeight: 'bold',
                         letterSpacing: 0.8,
@@ -50,7 +52,8 @@ export function ChatPane({ messages, chatEndRef, windowWidth, runState, isRunnin
                     content: m.content,
                     isUser,
                     fontSize: settings.fontSize,
-                    compact: settings.compact
+                    compact: settings.compact,
+                    theme: settings.theme
                 })
             );
         }),
