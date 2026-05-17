@@ -77,13 +77,14 @@ export function SimpleChat({ services }) {
             setPendingCommand(null);
             setTimeout(() => {
                 addMessage('user', cmdToRun);
-                handleSendText(cmdToRun);
+                handleCommand(cmdToRun);
             }, 100);
         }
     };
 
-    const handleSendText = async (text) => {
-        const [cmd, ...argsArr] = text.split(' ');
+    // ── Core command handler (NO user message adding — caller handles that) ──
+    const handleCommand = async (text) => {
+        const [cmd, ...argsArr] = text.trim().split(' ');
         const args = argsArr.join(' ');
 
         if (cmd === '/self-improve') {
@@ -106,7 +107,6 @@ export function SimpleChat({ services }) {
             setErrorLog('');
             setShowErrorLog(false);
 
-            addMessage('user', text);
             setTokenPercent(null);
 
             runStateRef.current = {
@@ -229,12 +229,14 @@ export function SimpleChat({ services }) {
                     progress: 100,
                     logs: [...(runStateRef.current?.logs || []), '✅ Indexed']
                 });
+                addMessage('assistant', '✅ Repository indexed successfully.');
             } catch (err) {
                 updateRunState({
                     phase: 'failed',
                     label: 'Indexing failed',
                     logs: [...(runStateRef.current?.logs || []), `❌ ${err.message}`]
                 });
+                addMessage('assistant', `❌ Indexing failed: ${err.message}`);
             } finally {
                 setIsRunning(false);
                 dispatchPending();
@@ -243,7 +245,6 @@ export function SimpleChat({ services }) {
         }
 
         if (cmd === '/pause') {
-            addMessage('user', text);
             if (improverRef.current) improverRef.current.pause();
             updateRunState({ phase: 'paused', label: 'Paused' });
             addMessage('assistant', '⏸ Pause requested');
@@ -251,7 +252,6 @@ export function SimpleChat({ services }) {
         }
 
         if (cmd === '/help') {
-            addMessage('user', text);
             addMessage('assistant', 'Commands: `/index`, `/self-improve "goal"`, `/pause`, `/clear`, `/context`');
             return;
         }
@@ -262,7 +262,6 @@ export function SimpleChat({ services }) {
         }
 
         if (cmd === '/context') {
-            addMessage('user', text);
             const improver = services.createImprover({
                 onLog: () => {},
                 onTaskUpdate: () => {},
@@ -277,15 +276,17 @@ export function SimpleChat({ services }) {
             return;
         }
 
-        addMessage('user', text);
+        // Unknown command
         addMessage('assistant', `Unknown command: ${cmd}. Type /help`);
     };
 
+    // ── Send handler — single entry point for all user input ──
     const handleSend = async () => {
         const text = input.trim();
         if (!text) return;
         setInput('');
 
+        // Clarification mode: route to queue instead of command parser
         if (runStateRef.current?.phase === 'clarifying' &&
             improverRef.current?.clarificationQueue?.isPending()) {
             addMessage('user', text);
@@ -294,8 +295,9 @@ export function SimpleChat({ services }) {
             return;
         }
 
+        // Normal flow: add user message once, then execute command
         addMessage('user', text);
-        await handleSendText(text);
+        await handleCommand(text);
     };
 
     const tokenBarColor = tokenPercent !== null
