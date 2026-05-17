@@ -1,26 +1,18 @@
 import React from 'react';
 const { createElement, useEffect } = React;
 
-function applyTheme(theme) {
-    const root = document.getElementById('root');
-    if (!root) return;
-    if (theme === 'light') {
-        root.style.background = '#f5f5f5';
-        root.style.color = '#1a1a1a';
-        document.body.style.background = '#f5f5f5';
-        document.body.style.color = '#1a1a1a';
-    } else {
-        root.style.background = '#0a0a0a';
-        root.style.color = '#e5e5e5';
-        document.body.style.background = '#0a0a0a';
-        document.body.style.color = '#e5e5e5';
-    }
-}
-
 export function Sidebar({ settings, setSettings, workspace, provider, runState, isRunning, windowWidth }) {
+    // Apply theme class to #root whenever settings.theme changes
     useEffect(() => {
-        applyTheme(settings.theme);
+        const root = document.getElementById('root');
+        if (!root) return;
+        if (settings.theme === 'light') {
+            root.classList.add('light-theme');
+        } else {
+            root.classList.remove('light-theme');
+        }
     }, [settings.theme]);
+
     if (!settings.sidebarOpen) return null;
 
     const isMobile = windowWidth < 768;
@@ -29,8 +21,8 @@ export function Sidebar({ settings, setSettings, workspace, provider, runState, 
     const panelStyle = {
         width,
         height: '100%',
-        background: '#0f0f0f',
-        borderRight: '1px solid #1a1a1a',
+        background: settings.theme === 'light' ? '#f0f0f0' : '#0f0f0f',
+        borderRight: `1px solid ${settings.theme === 'light' ? '#ddd' : '#1a1a1a'}`,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -40,25 +32,25 @@ export function Sidebar({ settings, setSettings, workspace, provider, runState, 
 
     const sectionStyle = {
         padding: '16px',
-        borderBottom: '1px solid #1a1a1a'
+        borderBottom: `1px solid ${settings.theme === 'light' ? '#ddd' : '#1a1a1a'}`
     };
 
     const labelStyle = {
         fontSize: 10,
         textTransform: 'uppercase',
         letterSpacing: 1.2,
-        color: '#555',
+        color: settings.theme === 'light' ? '#666' : '#555',
         marginBottom: 10,
         fontWeight: 'bold'
     };
 
     const inputStyle = {
         width: '100%',
-        background: '#141414',
-        border: '1px solid #262626',
+        background: settings.theme === 'light' ? '#fff' : '#141414',
+        border: `1px solid ${settings.theme === 'light' ? '#ccc' : '#262626'}`,
         borderRadius: 6,
         padding: '8px 10px',
-        color: '#e5e5e5',
+        color: settings.theme === 'light' ? '#1a1a1a' : '#e5e5e5',
         fontSize: 12,
         marginBottom: 8,
         outline: 'none'
@@ -69,10 +61,14 @@ export function Sidebar({ settings, setSettings, workspace, provider, runState, 
         style: {
             flex: 1,
             padding: '5px 0',
-            background: active ? '#262626' : '#141414',
-            border: '1px solid #333',
+            background: active 
+                ? (settings.theme === 'light' ? '#ddd' : '#262626')
+                : (settings.theme === 'light' ? '#eee' : '#141414'),
+            border: `1px solid ${settings.theme === 'light' ? '#ccc' : '#333'}`,
             borderRadius: 4,
-            color: active ? '#e5e5e5' : '#666',
+            color: active 
+                ? (settings.theme === 'light' ? '#1a1a1a' : '#e5e5e5')
+                : (settings.theme === 'light' ? '#666' : '#666'),
             cursor: 'pointer',
             fontSize: 11,
             textTransform: 'uppercase',
@@ -106,16 +102,22 @@ export function Sidebar({ settings, setSettings, workspace, provider, runState, 
 
         (isRunning || runState) && createElement('div', { style: sectionStyle },
             createElement('div', { style: labelStyle }, 'Run Context'),
-            createElement('div', { style: { fontSize: 12, color: '#888', marginBottom: 4 } }, `Phase: ${runState?.phase || 'idle'}`),
-            runState?.progress != null && createElement('div', { style: { fontSize: 12, color: '#888' } }, `Progress: ${Math.round(runState.progress)}%`),
-            runState?.fileChanges?.length > 0 && createElement('div', { style: { fontSize: 11, color: '#555', marginTop: 6 } }, `${runState.fileChanges.length} file(s) changed`)
+            createElement('div', { 
+                style: { fontSize: 12, color: settings.theme === 'light' ? '#555' : '#888', marginBottom: 4 } 
+            }, `Phase: ${runState?.phase || 'idle'}`),
+            runState?.progress != null && createElement('div', { 
+                style: { fontSize: 12, color: settings.theme === 'light' ? '#555' : '#888' } 
+            }, `Progress: ${Math.round(runState.progress)}%`),
+            runState?.fileChanges?.length > 0 && createElement('div', { 
+                style: { fontSize: 11, color: settings.theme === 'light' ? '#666' : '#555', marginTop: 6 } 
+            }, `${runState.fileChanges.length} file(s) changed`)
         ),
 
         createElement('div', { style: { ...sectionStyle, borderBottom: 'none', flex: 1, overflowY: 'auto' } },
             createElement('div', { style: labelStyle }, 'Appearance'),
 
             createElement('div', { style: { marginBottom: 14 } },
-                createElement('div', { style: { fontSize: 11, color: '#666', marginBottom: 6 } }, 'Font Size'),
+                createElement('div', { style: { fontSize: 11, color: settings.theme === 'light' ? '#666' : '#666', marginBottom: 6 } }, 'Font Size'),
                 createElement('div', { style: { display: 'flex', gap: 6 } },
                     smallBtn(settings.fontSize === 'sm', () => setSettings(s => ({ ...s, fontSize: 'sm' })), 'sm'),
                     smallBtn(settings.fontSize === 'md', () => setSettings(s => ({ ...s, fontSize: 'md' })), 'md'),
@@ -124,16 +126,20 @@ export function Sidebar({ settings, setSettings, workspace, provider, runState, 
             ),
 
             createElement('div', { style: { marginBottom: 14 } },
-                createElement('div', { style: { fontSize: 11, color: '#666', marginBottom: 6 } }, 'Density'),
+                createElement('div', { style: { fontSize: 11, color: settings.theme === 'light' ? '#666' : '#666', marginBottom: 6 } }, 'Density'),
                 createElement('button', {
                     onClick: () => setSettings(s => ({ ...s, compact: !s.compact })),
                     style: {
                         width: '100%',
                         padding: '6px 10px',
-                        background: settings.compact ? '#262626' : '#141414',
-                        border: '1px solid #333',
+                        background: settings.compact 
+                            ? (settings.theme === 'light' ? '#ddd' : '#262626')
+                            : (settings.theme === 'light' ? '#eee' : '#141414'),
+                        border: `1px solid ${settings.theme === 'light' ? '#ccc' : '#333'}`,
                         borderRadius: 4,
-                        color: settings.compact ? '#e5e5e5' : '#666',
+                        color: settings.compact 
+                            ? (settings.theme === 'light' ? '#1a1a1a' : '#e5e5e5')
+                            : (settings.theme === 'light' ? '#666' : '#666'),
                         cursor: 'pointer',
                         fontSize: 11,
                         textAlign: 'left'
@@ -142,16 +148,16 @@ export function Sidebar({ settings, setSettings, workspace, provider, runState, 
             ),
 
             createElement('div', { style: { marginBottom: 14 } },
-                createElement('div', { style: { fontSize: 11, color: '#666', marginBottom: 6 } }, 'Theme'),
+                createElement('div', { style: { fontSize: 11, color: settings.theme === 'light' ? '#666' : '#666', marginBottom: 6 } }, 'Theme'),
                 createElement('button', {
                     onClick: () => setSettings(s => ({ ...s, theme: s.theme === 'dark' ? 'light' : 'dark' })),
                     style: {
                         width: '100%',
                         padding: '6px 10px',
-                        background: '#141414',
-                        border: '1px solid #333',
+                        background: settings.theme === 'light' ? '#eee' : '#141414',
+                        border: `1px solid ${settings.theme === 'light' ? '#ccc' : '#333'}`,
                         borderRadius: 4,
-                        color: '#666',
+                        color: settings.theme === 'light' ? '#1a1a1a' : '#666',
                         cursor: 'pointer',
                         fontSize: 11,
                         textAlign: 'left'
@@ -159,8 +165,8 @@ export function Sidebar({ settings, setSettings, workspace, provider, runState, 
                 }, settings.theme === 'dark' ? 'Dark' : 'Light')
             ),
 
-            createElement('div', { style: { marginTop: 20, paddingTop: 14, borderTop: '1px solid #1a1a1a' } },
-                createElement('div', { style: { fontSize: 10, color: '#444', lineHeight: 1.5 } },
+            createElement('div', { style: { marginTop: 20, paddingTop: 14, borderTop: `1px solid ${settings.theme === 'light' ? '#ddd' : '#1a1a1a'}` } },
+                createElement('div', { style: { fontSize: 10, color: settings.theme === 'light' ? '#666' : '#444', lineHeight: 1.5 } },
                     'Provider: ', provider.provider,
                     React.createElement('br'),
                     'Model: ', provider.selectedModel
