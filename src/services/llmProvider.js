@@ -1,10 +1,10 @@
 /**
  * LLMProvider – Single point to call language models through Netlify edge proxies.
  * Features:
- *   - Streaming support for long responses (bypasses timeout)
- *   - Client-side timeout with abort controller
- *   - Retry with exponential backoff
- *   - Fast-model override for cheap/simple tasks
+ *   - 20s timeout per call (abort controller)
+ *   - Fast‑model override for cheap/simple tasks
+ *   - Pass‑through of thinking mode and reasoning effort to backend
+ *   - Error handling with user‑friendly messages
  */
 export class LLMProvider {
     static endpoint(provider) {
@@ -16,14 +16,13 @@ export class LLMProvider {
     static async chatCompletion({
         provider, model, messages, systemPrompt, userContent,
         thinkingMode, reasoningEffort,
-        timeoutMs = 60000, // Increased from 20s to 60s
+        timeoutMs = 45000,
         fastModel = null,
-        stream = false, // Enable streaming for long requests
-        onStreamChunk = null
+        retries = 2
     }) {
         const body = {
             model: fastModel || model,
-            stream: stream,
+            stream: false,
             messages: [
                 { role: 'system', content: systemPrompt },
                 ...messages.map(m => ({ role: m.role, content: m.content })),
@@ -35,92 +34,44 @@ export class LLMProvider {
             body.reasoning_effort = reasoningEffort || 'high';
         }
 
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        let lastError = null;
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-        try {
-            const res = await fetch(this.endpoint(provider), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-                signal: controller.signal
-            });
-            clearTimeout(timer);
-
-            if (!res.ok) {
-                const errText = await res.text();
-                throw new Error(`LLM error ${res.status}: ${errText}`);
-            }
-
-            // Handle streaming response
-            if (stream && onStreamChunk) {
-                const reader = res.body.getReader();
-                const decoder = new TextDecoder();
-                let fullContent = '';
-                
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    
-                    const chunk = decoder.decode(value, { stream: true });
-                    const lines = chunk.split('\n').filter(line => line.trim());
-                    
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const data = line.slice(6);
-                            if (data === '[DONE]') continue;
-                            try {
-                                const parsed = JSON.parse(data);
-                                const content = parsed.choices?.[0]?.delta?.content || '';
-                                if (content) {
-                                    fullContent += content;
-                                    onStreamChunk(content, fullContent);
-                                }
-                            } catch (e) {
-                                // Ignore parse errors for [DONE] or malformed chunks
-                            }
-                        }
-                    }
-                }
-                
-                return {
-                    content: fullContent,
-                    model: model
-                };
-            }
-
-            const data = await res.json();
-            return {
-                content: data.choices[0].message.content,
-                model: data.model || model
-            };
-        } catch (err) {
-            clearTimeout(timer);
-            if (err.name === 'AbortError') {
-                throw new Error(`LLM request timed out (${timeoutMs}ms)`);
-            }
-            throw err;
-        }
-    }
-
-    /**
-     * Retry wrapper with exponential backoff
-     */
-    static async chatCompletionWithRetry(options, maxRetries = 2) {
-        let lastError;
-        for (let i = 0; i <= maxRetries; i++) {
             try {
-                return await this.chatCompletion({
-                    ...options,
-                    timeoutMs: options.timeoutMs * (i + 1) // Increase timeout on retry
+                const res = await fetch(this.endpoint(provider), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                    signal: controller.signal
                 });
+                clearTimeout(timer);
+
+                if (!res.ok) {
+                    const errText = await res.text();
+                    throw new Error(`LLM error ${res.status}: ${errText}`);
+                }
+                const data = await res.json();
+                return {
+                    content: data.choices[0].message.content,
+                    model: data.model || model
+                };
             } catch (err) {
+                clearTimeout(timer);
                 lastError = err;
-                if (err.message.includes('timed out') && i < maxRetries) {
-                    console.warn(`LLM timeout, retrying (${i + 1}/${maxRetries})...`);
-                    await new Promise(r => setTimeout(r, 1000 * (i + 1))); // Exponential backoff
-                } else {
-                    throw err;
+                if (err.name === 'AbortError') {
+                    lastError = new Error(`LLM request timed out (${timeoutMs / 1000}s)`);
+                }
+                if (attempt < retries) {
+                    const delay = Math.min(2000 * Math.pow(2, attempt), 10000);
+                    console.warn(`LLM call failed (attempt ${attempt + 1}), retrying in ${delay}ms...`);
+                    await new Promise(r => setTimeout(r, delay));
+                    if (attempt === retries - 1 && !fastModel) {
+                        const fastModels = { deepseek: 'deepseek-chat', openrouter: 'openai/gpt-4o-mini' };
+                        body.model = fastModels[provider] || model;
+                        console.warn('Falling back to faster model:', body.model);
+                    }
                 }
             }
         }
@@ -132,7 +83,7 @@ export class LLMProvider {
      * Uses a cheaper model per provider.
      */
     static async fastCompletion({
-        provider, messages, userContent, timeoutMs = 20000
+        provider, messages, userContent, timeoutMs = 25000
     }) {
         const fastModels = {
             deepseek: 'deepseek-chat',
