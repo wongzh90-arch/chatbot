@@ -28,7 +28,7 @@ export class SelfImprover {
         this.onLog = onLog || (() => {});
         this.onTaskUpdate = onTaskUpdate || (() => {});
         this.onRunComplete = onRunComplete || (() => {});
-        this.onClarificationNeeded = onClarificationNeeded || (() => {}); // Now properly wired
+        // onClarificationNeeded is no longer used; kept only for backward compat
         this.preferences = preferences || null;
         this.onTokenUpdate = onTokenUpdate || (() => {});
         this.onPhaseChange = onPhaseChange || (() => {});
@@ -47,6 +47,7 @@ export class SelfImprover {
         this.changeBranch = null;
         this.conversationMemory = null;
 
+        // New queue – exposed so UI can call resolve() directly
         this.clarificationQueue = null;
         this._pendingSRBlocks = null;
     }
@@ -133,153 +134,36 @@ export class SelfImprover {
             return { success: false };
         }
 
-        try {
-            // Setup with timeout protection
-            const { enrichedGoal } = await this._withTimeout(
-                setupRun(this, goal, depth),
-                30000,
-                'Setup timed out'
-            );
-            this.currentGoal = enrichedGoal;
+        // Setup
+        const { enrichedGoal } = await setupRun(this, goal, depth);
+        this.currentGoal = enrichedGoal;
 
-            // ── Clarification (top-level only) ──
-            if (depth === 0) {
-                await this._handleClarification(enrichedGoal);
-            }
-
-            this.onLog(`🚀 Goal: ${this.currentGoal}${depth > 0 ? ` (sub‑goal, depth ${depth})` : ''}`);
-            this.onPhaseChange?.('planning', 'Planning...');
-
-            // Plan with timeout protection
-            const planResult = await this._withTimeout(
-                createPlan(this, this.currentGoal),
-                45000,
-                'Planning timed out'
-            );
-            
-            if (!planResult?.tasks?.length) {
-                this.onLog('❌ No tasks generated');
-                if (depth === 0) this.conversationMemory?.addFailedAttempt('No tasks generated');
-                return { success: false };
-            }
-
-            this.conversationMemory?.setPhase('executing');
-            this.conversationMemory?.setLastAction('Execution started');
-            this.onPhaseChange?.('executing', 'Executing...');
-
-            // Execute sub‑goals sequentially, then normal tasks
-            const tasks = this.taskQueue.tasks;
-            const normalTasks = [];
-
-            for (const task of tasks) {
-                if (this.pauseRequested) break;
-
-                if (task.subGoal) {
-                    await this._executeSubGoal(task, goal, depth);
-                } else {
-                    normalTasks.push(task);
-                }
-            }
-
-            if (normalTasks.length > 0) {
-                const ordered = topologicalSort(normalTasks);
-                this.taskQueue.tasks = ordered.concat(
-                    tasks.filter(t => t.subGoal && (t.status === 'DONE' || t.status === 'FAILED'))
+        // ── Clarification (top-level only) ──
+        if (depth === 0) {
+            if (!this.clarificationQueue) {
+                this.clarificationQueue = new ClarificationQueue(
+                    this.conversationMemory,
+                    (questions) => {
+                        // The questions are already displayed via onLog, no extra UI needed
+                    }
                 );
-                this.taskQueue.nextId = Math.max(...this.taskQueue.tasks.map(t => t.id), 0) + 1;
             }
 
-            // Execute/review cycles with error recovery
-            let cycleResult;
-            try {
-                cycleResult = await this._withTimeout(
-                    runCycles(this, depth),
-                    120000, // 2 min for full cycle
-                    'Execution cycle timed out'
-                );
-            } catch (err) {
-                this.onLog(`⚠️ Cycle error: ${err.message}. Attempting partial completion...`);
-                cycleResult = { allPassed: false, cycles: 0 };
-            }
-
-            // Post‑run actions
-            let result = await runPostActions(this, goal, depth, cycleResult.allPassed);
-
-            // If regressions added new tasks, re‑run
-            if (!result.success && this.taskQueue.tasks.some(t => t.status === 'TODO')) {
-                try {
-                    const { allPassed: secondPass } = await runCycles(this, depth);
-                    result = await runPostActions(this, goal, depth, secondPass);
-                } catch (err) {
-                    this.onLog(`⚠️ Second pass failed: ${err.message}`);
+            if (this.clarificationQueue.isPending()) {
+                const restoredPromise = this.clarificationQueue.restoreFromMemory();
+                if (restoredPromise) {
+                    const answers = await restoredPromise;
+                    if (answers) {
+                        this.currentGoal = `${enrichedGoal}\n\nClarifications from user:\n${answers}`;
+                        this.onLog('💬 Clarification answers loaded from memory');
+                    }
                 }
-            }
-
-            // Fallback success check
-            if (!result.success) {
-                const allDone = this.taskQueue.tasks.every(t => t.status === 'DONE' && !t.subGoal);
-                if (allDone) {
-                    result.success = true;
-                    result.committedFiles = gatherCommittedFiles(this.taskQueue.tasks);
-                }
-            }
-
-            // File change notifications
-            if (result.committedFiles?.length) {
-                for (const file of result.committedFiles) {
-                    this.onFileChange?.(file, 'committed', null);
-                }
-            }
-
-            if (depth === 0) {
-                if (!result.success) {
-                    this.conversationMemory?.addFailedAttempt('Run failed for goal: ' + goal);
-                }
-            }
-
-            this.onPhaseChange?.(result.success ? 'done' : 'failed',
-                                 result.success ? 'Run completed' : 'Run failed');
-
-            return result;
-            
-        } catch (err) {
-            this.onLog(`❌ Fatal error in runGoal: ${err.message}`);
-            this.onPhaseChange?.('failed', `Error: ${err.message}`);
-            return { success: false, error: err.message };
-        }
-    }
-
-    async _handleClarification(enrichedGoal) {
-        if (!this.clarificationQueue) {
-            this.clarificationQueue = new ClarificationQueue(
-                this.conversationMemory,
-                (questions) => {
-                    // Notify UI to display questions
-                    this.onClarificationNeeded(questions);
-                }
-            );
-        }
-
-        if (this.clarificationQueue.isPending()) {
-            const restoredPromise = this.clarificationQueue.restoreFromMemory();
-            if (restoredPromise) {
-                const answers = await restoredPromise;
-                if (answers) {
-                    this.currentGoal = `${enrichedGoal}\n\nClarifications from user:\n${answers}`;
-                    this.onLog('💬 Clarification answers loaded from memory');
-                }
-            }
-        } else {
-            try {
-                const { questions } = await this._withTimeout(
-                    generateClarificationQuestions(this, enrichedGoal),
-                    15000,
-                    'Clarification generation timed out'
-                );
-                
+            } else {
+                const { questions } = await generateClarificationQuestions(this, enrichedGoal);
                 if (questions && questions.length) {
                     this.onPhaseChange?.('clarifying', 'Awaiting answers...');
-                    // Questions are now shown via onClarificationNeeded callback
+                    this.onLog('❓ Please answer these:\n' +
+                        questions.map((q, i) => `${i + 1}. ${q}`).join('\n'));
                     const userResponse = await this.clarificationQueue.request(questions, 300000);
                     if (userResponse && userResponse.trim()) {
                         this.currentGoal = `${enrichedGoal}\n\nClarifications from user:\n${userResponse.trim()}`;
@@ -288,60 +172,115 @@ export class SelfImprover {
                         this.onLog('⏰ No clarification received – continuing with original goal');
                     }
                 }
-            } catch (err) {
-                this.onLog(`⚠️ Clarification error: ${err.message}. Continuing without clarification.`);
             }
         }
-    }
 
-    async _executeSubGoal(task, parentGoal, depth) {
-        this.onLog(`\n🔽 Starting sub‑goal: "${task.subGoal}"`);
-        const child = new SelfImprover({
-            repo: this.repo, branch: this.branch, githubToken: this.githubToken,
-            provider: this.provider, model: this.model,
-            thinkingMode: this.thinkingMode, reasoningEffort: this.reasoningEffort,
-            netlifySiteName: this.netlifySiteName,
-            onLog: (msg) => this.onLog(`  [sub] ${msg}`),
-            onTaskUpdate: () => {},
-            onRunComplete: () => {},
-            onClarificationNeeded: undefined,
-            preferences: this.preferences,
-        });
-        child.parentGoal = parentGoal;
-        child.parentWorkingMemory = this.workingMemory;
-        child.fileTree = this.fileTree;
-        child.discoveryCache = this.discoveryCache;
-        child.changeBranch = this.changeBranch;
-        child.branch = this.branch;
-        child.conversationMemory = this.conversationMemory;
+        this.onLog(`🚀 Goal: ${this.currentGoal}${depth > 0 ? ` (sub‑goal, depth ${depth})` : ''}`);
+        this.onPhaseChange?.('planning', 'Planning...');
 
-        try {
-            const subResult = await child.runGoal(task.subGoal, depth + 1);
-            if (subResult.success) {
-                markTaskDone(this, task.id);
-                task.committedFiles = subResult.committedFiles || [];
-                this.workingMemory.files = { ...this.workingMemory.files, ...child.workingMemory.files };
-                this.workingMemory.notes.push(`Sub‑goal "${task.title}" done`);
-                this.onLog(`✅ Sub‑goal completed: ${task.title}`);
+        // Plan
+        const planResult = await createPlan(this, this.currentGoal);
+        if (!planResult?.tasks?.length) {
+            this.onLog('❌ No tasks generated');
+            if (depth === 0) this.conversationMemory?.addFailedAttempt('No tasks generated');
+            return { success: false };
+        }
+
+        this.conversationMemory?.setPhase('executing');
+        this.conversationMemory?.setLastAction('Execution started');
+        this.onPhaseChange?.('executing', 'Executing...');
+
+        // Execute sub‑goals sequentially, then normal tasks
+        const tasks = this.taskQueue.tasks;
+        const normalTasks = [];
+
+        for (const task of tasks) {
+            if (this.pauseRequested) break;
+
+            if (task.subGoal) {
+                this.onLog(`\n🔽 Starting sub‑goal: "${task.subGoal}"`);
+                const child = new SelfImprover({
+                    repo: this.repo, branch: this.branch, githubToken: this.githubToken,
+                    provider: this.provider, model: this.model,
+                    thinkingMode: this.thinkingMode, reasoningEffort: this.reasoningEffort,
+                    netlifySiteName: this.netlifySiteName,
+                    onLog: (msg) => this.onLog(`  [sub] ${msg}`),
+                    onTaskUpdate: () => {},
+                    onRunComplete: () => {},
+                    onClarificationNeeded: undefined, // sub‑goals don't ask independently
+                    preferences: this.preferences,
+                });
+                child.parentGoal = goal;
+                child.parentWorkingMemory = this.workingMemory;
+                child.fileTree = this.fileTree;
+                child.discoveryCache = this.discoveryCache;
+                child.changeBranch = this.changeBranch;
+                child.branch = this.branch;
+                child.conversationMemory = this.conversationMemory;
+
+                const subResult = await child.runGoal(task.subGoal, depth + 1);
+                if (subResult.success) {
+                    markTaskDone(this, task.id);
+                    task.committedFiles = subResult.committedFiles || [];
+                    this.workingMemory.files = { ...this.workingMemory.files, ...child.workingMemory.files };
+                    this.workingMemory.notes.push(`Sub‑goal "${task.title}" done`);
+                    this.onLog(`✅ Sub‑goal completed: ${task.title}`);
+                } else {
+                    markTaskFailed(this, task.id);
+                    this.onLog(`❌ Sub‑goal failed: ${task.title}`);
+                }
+                this.onTaskUpdate();
             } else {
-                markTaskFailed(this, task.id);
-                this.onLog(`❌ Sub‑goal failed: ${task.title}`);
+                normalTasks.push(task);
             }
-        } catch (err) {
-            markTaskFailed(this, task.id);
-            this.onLog(`❌ Sub‑goal crashed: ${err.message}`);
         }
-        this.onTaskUpdate();
-    }
 
-    /**
-     * Wrapper to add timeout protection to any async operation
-     */
-    async _withTimeout(promise, ms, errorMessage) {
-        const timeout = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error(errorMessage)), ms)
-        );
-        return Promise.race([promise, timeout]);
+        if (normalTasks.length > 0) {
+            const ordered = topologicalSort(normalTasks);
+            this.taskQueue.tasks = ordered.concat(
+                tasks.filter(t => t.subGoal && (t.status === 'DONE' || t.status === 'FAILED'))
+            );
+            this.taskQueue.nextId = Math.max(...this.taskQueue.tasks.map(t => t.id), 0) + 1;
+        }
+
+        // Execute/review cycles
+        const { allPassed } = await runCycles(this, depth);
+
+        // Post‑run actions
+        let result = await runPostActions(this, goal, depth, allPassed);
+
+        // If regressions added new tasks, re‑run
+        if (!result.success && this.taskQueue.tasks.some(t => t.status === 'TODO')) {
+            const { allPassed: secondPass } = await runCycles(this, depth);
+            result = await runPostActions(this, goal, depth, secondPass);
+        }
+
+        // Fallback success check
+        if (!result.success) {
+            const allDone = this.taskQueue.tasks.every(t => t.status === 'DONE' && !t.subGoal);
+            if (allDone) {
+                result.success = true;
+                result.committedFiles = gatherCommittedFiles(this.taskQueue.tasks);
+            }
+        }
+
+        // File change notifications
+        if (result.committedFiles?.length) {
+            for (const file of result.committedFiles) {
+                this.onFileChange?.(file, 'committed', null);
+            }
+        }
+
+        if (depth === 0) {
+            if (!result.success) {
+                this.conversationMemory?.addFailedAttempt('Run failed for goal: ' + goal);
+            }
+        }
+
+        this.onPhaseChange?.(result.success ? 'done' : 'failed',
+                             result.success ? 'Run completed' : 'Run failed');
+
+        return result;
     }
 
     pause() { this.pauseRequested = true; }
