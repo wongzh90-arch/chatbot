@@ -25,6 +25,17 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            transition: background 0.3s, color 0.3s;
+        }
+        #root.light-theme {
+            background: #f5f5f5 !important;
+            color: #1a1a1a !important;
+        }
+        #root.light-theme input,
+        #root.light-theme select,
+        #root.light-theme button,
+        #root.light-theme textarea {
+            color: #1a1a1a;
         }
         #root input, #root select, #root button, #root textarea {
             color: white;
@@ -52,6 +63,7 @@
             }
         }
     </script>
+<base target="_blank">
 </head>
 <body>
     <div id="root"></div>
