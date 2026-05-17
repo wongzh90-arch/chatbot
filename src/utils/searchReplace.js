@@ -81,9 +81,38 @@ export class SearchReplace {
      * appears exactly once in the normalised text.
      */
     static _flexibleMatch(text, search, replace) {
-        // DISABLED: original had undefined variables + broken position mapping.
-        // Exact match is enforced; the LLM will retry with corrected whitespace.
-        return null;
+        const normalise = (s) => s.split('\n').map(l => l.replace(/^\s+/, ' ')).join('\n');
+        const normText = normalise(text);
+        const normSearch = normalise(search);
+
+        const idx = normText.indexOf(normSearch);
+        if (idx === -1) return null;
+        if (normText.indexOf(normSearch, idx + 1) !== -1) return null;
+
+        let origIdx = 0;
+        let normIdx = 0;
+        while (normIdx < idx && origIdx < text.length) {
+            if (text[origIdx] === '\n') {
+                normIdx++;
+            } else if (text[origIdx] !== ' ' && text[origIdx] !== '\t') {
+                normIdx++;
+            }
+            origIdx++;
+        }
+        let endIdx = origIdx;
+        let searchNormIdx = 0;
+        while (searchNormIdx < normSearch.length && endIdx < text.length) {
+            if (text[endIdx] === '\n') {
+                searchNormIdx++;
+            } else if (text[endIdx] !== ' ' && text[endIdx] !== '\t') {
+                searchNormIdx++;
+            }
+            endIdx++;
+        }
+
+        const before = text.slice(0, origIdx);
+        const after = text.slice(endIdx);
+        return { replaced: before + replace + after };
     }
 
     /**
