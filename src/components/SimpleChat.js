@@ -166,10 +166,8 @@ export function SimpleChat({ services }) {
                     const originalOnShow = improverRef.current.clarificationQueue.onShowQuestions;
                     improverRef.current.clarificationQueue.onShowQuestions = (questions) => {
                         if (originalOnShow) originalOnShow(questions);
-                        const qText = '❓ I need some clarification:
-' + 
-                            questions.map((q, i) => `${i + 1}. ${q}`).join('
-');
+                        const qText = '❓ I need some clarification:\n' + 
+                            questions.map((q, i) => `${i + 1}. ${q}`).join('\n');
                         addMessage('assistant', qText);
                         updateRunState({ phase: 'clarifying', label: 'Awaiting your answers...' });
                     };
