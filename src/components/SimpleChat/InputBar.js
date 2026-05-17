@@ -3,13 +3,14 @@ import React from 'react';
 export function InputBar({ input, setInput, onSend, windowWidth, settings }) {
     const isMobile = windowWidth < 768;
     const compact = settings?.compact;
+    const isLight = settings.theme === 'light';
 
     const containerStyle = {
-        borderTop: '1px solid #1a1a1a',
+        borderTop: `1px solid ${isLight ? '#ddd' : '#1a1a1a'}`,
         padding: compact ? '8px 12px' : '12px',
         display: 'flex',
         gap: 8,
-        background: '#0a0a0a',
+        background: isLight ? '#f5f5f5' : '#0a0a0a',
         flexDirection: isMobile ? 'column' : 'row',
         flexShrink: 0,
         alignItems: 'center'
@@ -17,11 +18,11 @@ export function InputBar({ input, setInput, onSend, windowWidth, settings }) {
 
     const inputStyle = {
         flex: 1,
-        background: '#141414',
-        border: '1px solid #262626',
+        background: isLight ? '#fff' : '#141414',
+        border: `1px solid ${isLight ? '#ccc' : '#262626'}`,
         borderRadius: 8,
         padding: isMobile ? '10px 12px' : '10px 14px',
-        color: '#e5e5e5',
+        color: isLight ? '#1a1a1a' : '#e5e5e5',
         fontSize: 15,
         lineHeight: 1.5,
         width: isMobile ? '100%' : undefined,
