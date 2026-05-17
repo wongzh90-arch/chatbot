@@ -218,6 +218,9 @@ export function SimpleChat({ services }) {
                 },
                 onTaskUpdate: () => {},
                 onTokenUpdate: () => {},
+                onProgress: (pct) => {
+                    updateRunState({ progress: pct });
+                },
             });
 
             try {
