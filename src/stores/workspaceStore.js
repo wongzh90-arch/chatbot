@@ -13,6 +13,6 @@ export const useWorkspaceStore = create(
             setGithubToken: (token) => set({ githubToken: token }),
             setRememberKeys: (val) => set({ rememberKeys: val }),
         }),
-        { name: 'workspace-storage' }
+        { name: 'workspace-storage', skipHydration: true }
     )
 );
