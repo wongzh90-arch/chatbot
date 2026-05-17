@@ -302,13 +302,15 @@ export function SimpleChat({ services }) {
         ? (tokenPercent > 60 ? '#4ade80' : tokenPercent > 30 ? '#fbbf24' : '#f87171')
         : '#333';
 
+    const isLight = settings.theme === 'light';
+
     return createElement('div', {
-        style: { display: 'flex', flexDirection: 'row', height: '100%', background: '#0a0a0a', color: '#e5e5e5', overflow: 'hidden' }
+        style: { display: 'flex', flexDirection: 'row', height: '100%', background: isLight ? '#f5f5f5' : '#0a0a0a', color: isLight ? '#1a1a1a' : '#e5e5e5', overflow: 'hidden' }
     },
         createElement(Sidebar, { settings, setSettings, workspace, provider, runState, isRunning, windowWidth }),
         createElement('div', { style: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 } },
             createElement(Header, { isRunning, windowWidth, settings, setSettings }),
-            tokenPercent !== null && createElement('div', { style: { height: 3, background: '#1a1a1a', width: '100%', flexShrink: 0 } },
+            tokenPercent !== null && createElement('div', { style: { height: 3, background: isLight ? '#eee' : '#1a1a1a', width: '100%', flexShrink: 0 } },
                 createElement('div', {
                     style: { height: '100%', width: `${tokenPercent}%`, background: tokenBarColor, transition: 'width 0.3s' }
                 })
@@ -322,14 +324,33 @@ export function SimpleChat({ services }) {
             createElement('div', { style: { padding: '0 12px', flexShrink: 0 } },
                 createElement('button', {
                     onClick: () => setShowErrorLog(!showErrorLog),
-                    style: { background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 11, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }
+                    style: { 
+                        background: 'none', 
+                        border: 'none', 
+                        color: isLight ? '#666' : '#555', 
+                        cursor: 'pointer', 
+                        fontSize: 11, 
+                        marginBottom: 4, 
+                        textTransform: 'uppercase', 
+                        letterSpacing: 0.5 
+                    }
                 }, showErrorLog ? '▲ Hide error log' : '▼ Paste error log'),
                 showErrorLog && createElement('textarea', {
                     value: errorLog,
                     onChange: e => setErrorLog(e.target.value),
                     placeholder: 'Paste stack trace or error message here...',
                     rows: 3,
-                    style: { width: '100%', background: '#111', border: '1px solid #222', borderRadius: 6, padding: 8, color: 'white', fontSize: 12, resize: 'vertical', marginBottom: 8 }
+                    style: { 
+                        width: '100%', 
+                        background: isLight ? '#fff' : '#111', 
+                        border: `1px solid ${isLight ? '#ccc' : '#222'}`, 
+                        borderRadius: 6, 
+                        padding: 8, 
+                        color: isLight ? '#1a1a1a' : 'white', 
+                        fontSize: 12, 
+                        resize: 'vertical', 
+                        marginBottom: 8 
+                    }
                 })
             ),
             createElement(InputBar, { input, setInput, onSend: handleSend, windowWidth, settings }),
