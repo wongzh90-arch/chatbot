@@ -6,14 +6,15 @@ export function Header({ isRunning, windowWidth, settings, setSettings }) {
     const workspace = useWorkspaceStore();
     const provider = useProviderStore();
     const isMobile = windowWidth < 768;
+    const isLight = settings.theme === 'light';
 
     const containerStyle = {
         padding: '10px 16px',
-        borderBottom: '1px solid #1a1a1a',
+        borderBottom: `1px solid ${isLight ? '#ddd' : '#1a1a1a'}`,
         display: 'flex',
         alignItems: 'center',
         gap: 12,
-        background: '#0a0a0a',
+        background: isLight ? '#f5f5f5' : '#0a0a0a',
         flexShrink: 0,
     };
 
@@ -23,7 +24,7 @@ export function Header({ isRunning, windowWidth, settings, setSettings }) {
             style: {
                 background: 'none',
                 border: 'none',
-                color: '#888',
+                color: isLight ? '#555' : '#888',
                 fontSize: 18,
                 cursor: 'pointer',
                 padding: '4px 8px',
@@ -45,7 +46,7 @@ export function Header({ isRunning, windowWidth, settings, setSettings }) {
 
         !settings.sidebarOpen && workspace.currentRepo && React.createElement('span', {
             style: {
-                color: '#555',
+                color: isLight ? '#666' : '#555',
                 fontSize: 11,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
@@ -60,12 +61,12 @@ export function Header({ isRunning, windowWidth, settings, setSettings }) {
         React.createElement('button', {
             onClick: () => provider.setProvider(provider.provider === 'deepseek' ? 'openrouter' : 'deepseek'),
             style: {
-                background: '#141414',
-                border: '1px solid #2a2a2a',
+                background: isLight ? '#eee' : '#141414',
+                border: `1px solid ${isLight ? '#ccc' : '#2a2a2a'}`,
                 borderRadius: 6,
                 padding: '5px 10px',
                 fontSize: 11,
-                color: '#888',
+                color: isLight ? '#555' : '#888',
                 cursor: 'pointer',
                 textTransform: 'uppercase',
                 letterSpacing: 0.5
