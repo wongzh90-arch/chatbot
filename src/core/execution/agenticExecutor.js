@@ -39,7 +39,8 @@ export async function executeTaskAgentic(ctx, task) {
     for (let turn = 0; turn < 8; turn++) {
         if (ctx.pauseRequested) break;
 
-        const prompt = buildExecutionPrompt(memory, fullContents, ctx.manifest, memSummary);
+        try {
+            const prompt = buildExecutionPrompt(memory, fullContents, ctx.manifest, memSummary);
 
         if (ctx.onTokenUpdate) {
             const tokensUsed = Math.ceil(prompt.length / 4);
@@ -53,7 +54,7 @@ export async function executeTaskAgentic(ctx, task) {
             systemPrompt: 'You are a senior developer. Output exactly one action per turn.',
             userContent: prompt,
             thinkingMode: false,
-            timeoutMs: 20000
+            timeoutMs: 35000
         });
 
         const action = parseAgentAction(rawReply);
@@ -151,6 +152,15 @@ export async function executeTaskAgentic(ctx, task) {
         } else {
             ctx.onLog(`📝 Agent note: ${rawReply.slice(0, 200)}`);
             memory.notes.push(`Agent said: ${rawReply.slice(0, 200)}`);
+        }
+        } catch (turnErr) {
+            ctx.onLog(`❌ Turn ${turn + 1} error: ${turnErr.message}`);
+            if (turnErr.message && turnErr.message.includes('timed out')) {
+                ctx.onLog('⏱️ LLM timeout – will retry with shorter context...');
+                if (memory.notes.length > 2) {
+                    memory.notes = memory.notes.slice(-2);
+                }
+            }
         }
     }
     ctx.onLog('❌ Executor ran out of turns');
