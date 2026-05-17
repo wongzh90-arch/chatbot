@@ -13,6 +13,6 @@ export const useProviderStore = create(
             setThinkingMode: (v) => set({ thinkingMode: v }),
             setReasoningEffort: (e) => set({ reasoningEffort: e }),
         }),
-        { name: 'provider-storage' }
+        { name: 'provider-storage', skipHydration: true }
     )
 );
