@@ -6,6 +6,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
     const isMobile = windowWidth < 768;
     const logRef = useRef(null);
     const isCompact = compact || settings?.compact;
+    const isLight = settings?.theme === 'light';
 
     useEffect(() => {
         if (logRef.current && runState?.logs?.length > 0) {
@@ -36,11 +37,17 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
     const phaseColor = phaseColors[runState.phase] || '#888';
     const phaseIcon = phaseIcons[runState.phase] || '⚙️';
 
-    // Compact inline version (when embedded in chat flow)
+    const bgColor = isLight ? '#fff' : '#111';
+    const headerBg = isLight ? '#f5f5f5' : '#0a0a0a';
+    const borderColor = isLight ? '#ddd' : '#1a1a1a';
+    const textColor = isLight ? '#1a1a1a' : '#e5e5e5';
+    const mutedColor = isLight ? '#666' : '#555';
+
+    // Compact inline version
     if (isCompact) {
         return createElement('div', {
             style: {
-                background: settings.theme === 'dark' ? '#111' : '#f0f0f0',
+                background: bgColor,
                 border: `1px solid ${phaseColor}40`,
                 borderRadius: 8,
                 marginBottom: 8,
@@ -58,7 +65,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
                     alignItems: 'center',
                     gap: 8,
                     padding: '6px 12px',
-                    background: settings.theme === 'dark' ? '#0a0a0a' : '#e8e8e8',
+                    background: headerBg,
                     cursor: 'pointer',
                     userSelect: 'none'
                 }
@@ -73,7 +80,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
                     } 
                 }, runState.label || runState.phase),
                 runState.progress != null && createElement('span', { 
-                    style: { color: '#666', fontSize: 10 } 
+                    style: { color: mutedColor, fontSize: 10 } 
                 }, `${Math.round(runState.progress)}%`),
                 isRunning && createElement('button', {
                     onClick: (e) => { e.stopPropagation(); onPause(); },
@@ -89,11 +96,11 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
                     }
                 }, '⏸'),
                 createElement('span', { 
-                    style: { color: '#444', fontSize: 10, marginLeft: 4 } 
+                    style: { color: isLight ? '#888' : '#444', fontSize: 10, marginLeft: 4 } 
                 }, expanded ? '▾' : '▸')
             ),
             runState.progress != null && createElement('div', { 
-                style: { height: 2, background: '#1a1a1a' } 
+                style: { height: 2, background: isLight ? '#eee' : '#1a1a1a' } 
             },
                 createElement('div', { 
                     style: { 
@@ -107,7 +114,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
             expanded && createElement('div', { 
                 style: { 
                     padding: '6px 12px', 
-                    borderTop: `1px solid ${settings.theme === 'dark' ? '#1a1a1a' : '#e0e0e0'}`,
+                    borderTop: `1px solid ${borderColor}`,
                     maxHeight: 200,
                     overflowY: 'auto'
                 } 
@@ -118,7 +125,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
                     createElement('div', { 
                         style: { 
                             fontSize: 9, 
-                            color: '#555', 
+                            color: mutedColor, 
                             textTransform: 'uppercase', 
                             letterSpacing: 1, 
                             marginBottom: 4, 
@@ -149,7 +156,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
                                 }
                             }, t.status),
                             createElement('span', { 
-                                style: { flex: 1, color: '#aaa', fontSize: 10 } 
+                                style: { flex: 1, color: isLight ? '#555' : '#aaa', fontSize: 10 } 
                             }, t.title)
                         )
                     )
@@ -158,10 +165,10 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
         );
     }
 
-    // Full version (sidebar or dedicated panel)
+    // Full version
     return createElement('div', {
         style: {
-            background: settings.theme === 'dark' ? '#111' : '#fff',
+            background: bgColor,
             border: `1px solid ${phaseColor}25`,
             borderRadius: 8,
             marginBottom: isCompact ? 8 : 12,
@@ -170,7 +177,6 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
             flexShrink: 0
         }
     },
-        // ... (keep original full version if needed, or use compact as default)
         createElement('div', {
             onClick: () => setExpanded(!expanded),
             style: {
@@ -178,7 +184,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
                 alignItems: 'center',
                 gap: 8,
                 padding: isCompact ? '8px 12px' : '10px 14px',
-                background: settings.theme === 'dark' ? '#0a0a0a' : '#f5f5f5',
+                background: headerBg,
                 cursor: 'pointer',
                 userSelect: 'none'
             }
@@ -192,7 +198,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
                 } 
             }, runState.label || runState.phase),
             runState.progress != null && createElement('span', { 
-                style: { color: '#666', fontSize: 10 } 
+                style: { color: mutedColor, fontSize: 10 } 
             }, `${Math.round(runState.progress)}%`),
             isRunning && createElement('button', {
                 onClick: (e) => { e.stopPropagation(); onPause(); },
@@ -208,12 +214,12 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
                 }
             }, '⏸'),
             createElement('span', { 
-                style: { color: '#444', fontSize: 10, marginLeft: 4 } 
+                style: { color: isLight ? '#888' : '#444', fontSize: 10, marginLeft: 4 } 
             }, expanded ? '▾' : '▸')
         ),
 
         runState.progress != null && createElement('div', { 
-            style: { height: 2, background: '#1a1a1a' } 
+            style: { height: 2, background: isLight ? '#eee' : '#1a1a1a' } 
         },
             createElement('div', { 
                 style: { 
@@ -228,7 +234,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
         expanded && createElement('div', { 
             style: { 
                 padding: isCompact ? '8px 12px' : '10px 14px', 
-                borderTop: '1px solid #1a1a1a' 
+                borderTop: `1px solid ${borderColor}` 
             } 
         },
             runState.tasks && runState.tasks.length > 0 && createElement('div', { 
@@ -237,7 +243,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
                 createElement('div', { 
                     style: { 
                         fontSize: 9, 
-                        color: '#555', 
+                        color: mutedColor, 
                         textTransform: 'uppercase', 
                         letterSpacing: 1, 
                         marginBottom: 6, 
@@ -268,7 +274,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
                             }
                         }, t.status),
                         createElement('span', { 
-                            style: { flex: 1, color: '#aaa' } 
+                            style: { flex: 1, color: isLight ? '#555' : '#aaa' } 
                         }, t.title)
                     )
                 )
@@ -280,7 +286,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
                 createElement('div', { 
                     style: { 
                         fontSize: 9, 
-                        color: '#555', 
+                        color: mutedColor, 
                         textTransform: 'uppercase', 
                         letterSpacing: 1, 
                         marginBottom: 6, 
@@ -293,7 +299,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
                         style: { 
                             padding: '3px 0', 
                             fontSize: 11, 
-                            borderBottom: '1px solid #1a1a1a' 
+                            borderBottom: `1px solid ${borderColor}` 
                         } 
                     },
                         createElement('div', { 
@@ -304,7 +310,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
                         }, `${fc.status === 'committed' ? '✅' : '📝'} ${fc.path}`),
                         fc.diff && createElement('pre', { 
                             style: { 
-                                background: '#0a0a0a', 
+                                background: isLight ? '#f0f0f0' : '#0a0a0a', 
                                 padding: 6, 
                                 borderRadius: 4, 
                                 overflowX: 'auto', 
@@ -312,7 +318,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
                                 maxHeight: 100, 
                                 overflowY: 'auto', 
                                 margin: '4px 0 0 0', 
-                                color: '#888' 
+                                color: isLight ? '#555' : '#888' 
                             } 
                         }, fc.diff)
                     )
@@ -323,7 +329,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
                 createElement('div', { 
                     style: { 
                         fontSize: 9, 
-                        color: '#555', 
+                        color: mutedColor, 
                         textTransform: 'uppercase', 
                         letterSpacing: 1, 
                         marginBottom: 6, 
@@ -335,7 +341,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
                     style: { 
                         maxHeight: 100, 
                         overflowY: 'auto', 
-                        background: '#0a0a0a', 
+                        background: isLight ? '#f0f0f0' : '#0a0a0a', 
                         padding: 8, 
                         borderRadius: 4 
                     } 
@@ -345,7 +351,7 @@ export function RunCard({ runState, isRunning, onPause, windowWidth, settings, c
                             key: i, 
                             style: { 
                                 fontSize: 10, 
-                                color: line.startsWith('❌') ? '#f87171' : line.startsWith('✅') ? '#4ade80' : line.startsWith('⚠️') ? '#fbbf24' : '#888', 
+                                color: line.startsWith('❌') ? '#f87171' : line.startsWith('✅') ? '#4ade80' : line.startsWith('⚠️') ? '#fbbf24' : isLight ? '#555' : '#888', 
                                 padding: '1px 0', 
                                 fontFamily: 'monospace', 
                                 whiteSpace: 'pre-wrap', 
